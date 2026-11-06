@@ -88,9 +88,10 @@ export async function receiveBatch({ scanId, items, page, totalPages, sellerLogi
   const out = [];
   let added = 0;
   let updated = 0;
-  for (const raw of items) {
+  for (const [idx, raw] of items.entries()) {
     const n = normalizeListing(raw, scan.origin, { sellerId: scan.sellerId, sellerLogin, scannedBy: scan.accountId });
     if (!n) continue;
+    n.scanRank = (Math.max(1, page) - 1) * 96 + idx;     // posizione in «più recenti prima» di Vinted
     const prev = byId.get(n.id);
     const merged = mergeListing(prev, n);
     merged.scanIds = [...new Set([...(prev?.scanIds || []), scanId])].slice(-20);

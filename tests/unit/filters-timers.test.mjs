@@ -72,3 +72,19 @@ test("soglie giornaliere: per tipo, per account, globale; azzeramento a nuovo gi
   assert.equal(freshCounters(c, tomorrow).global, 0);
   assert.ok(checkLimit(c, "a", "like", limits, t0).resetAt > t0);
 });
+
+test("data automatica: pubblicazione, poi foto (stima), poi ordine di Vinted", () => {
+  const L2 = [
+    { id: "a", publishedAt: null, photoAt: now - 3 * day, scanRank: 2 },
+    { id: "b", publishedAt: now - 1 * day, photoAt: now - 9 * day, scanRank: 5 },
+    { id: "c", publishedAt: null, photoAt: null, scanRank: 0 },
+    { id: "d", publishedAt: null, photoAt: null, scanRank: 1 },
+    { id: "e", publishedAt: null, photoAt: null },
+  ];
+  const r = applyFilters(L2, { topN: 4 }, now);
+  assert.deepEqual(r.items.map((x) => x.id), ["b", "a", "c", "d"], "date prima, poi ordine di Vinted; senza niente escluso");
+  assert.equal(r.noDate, 1);
+  assert.deepEqual(applyFilters(L2, { range: "7d" }, now).items.map((x) => x.id).sort(), ["a", "b"]);
+  assert.deepEqual(applyFilters(L2, { range: "7d", dateField: "publishedAt" }, now).items.map((x) => x.id), ["b"], "campo esplicito: niente ripieghi");
+  assert.deepEqual(sortItems(L2.slice(0, 4), "oldest", 1, (x) => x).map((x) => x.id), ["d", "c", "a", "b"]);
+});

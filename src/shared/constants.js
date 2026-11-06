@@ -4,7 +4,7 @@
  */
 
 export const APP_NAME = "Vintastic";
-export const VERSION = "1.0.1";
+export const VERSION = "1.1.0";
 export const REPO = "MashaUP/Vintastic";
 export const DB_NAME = "vintastic";
 export const DB_VERSION = 3;            // vedi migrations.js

@@ -21,7 +21,7 @@ import * as connectivity from "./connectivity.js";
 import { suggestFor } from "./ai.js";
 import { log, activity } from "./logger.js";
 import { attachPort, broadcast } from "./bus.js";
-import { applyFilters } from "../shared/filters.js";
+import { applyFilters, newestFirst } from "../shared/filters.js";
 import { summarize } from "../shared/ledger.js";
 import { computeStats } from "../shared/stats.js";
 import { freshCounters, checkLimit } from "../shared/timers.js";
@@ -314,13 +314,18 @@ async function rpc(method, p, sender) {
       const camps = new Map((await engine.listCampaigns()).map((c) => [c.id, c.name]));
       const offset = p.offset || 0;
       const limit = Math.min(p.limit || 50, 500);
-      const sortKey = p.sort || "default";
+      // Ordinamento: campo + direzione (desc = più recenti / più cari / Z→A in cima).
+      const legacy = p.dir ? null : { price: ["price", "asc"], "-price": ["price", "desc"], title: ["title", "asc"], "-date": ["date", "desc"], "-seen": ["seen", "desc"] }[p.sort];
+      const [sortKey, dir] = legacy || [p.sort || "default", p.dir === "asc" ? "asc" : "desc"];
       let list = r.items;
-      if (sortKey === "price") list = list.slice().sort((a, b) => (a.price ?? 0) - (b.price ?? 0));
-      if (sortKey === "-price") list = list.slice().sort((a, b) => (b.price ?? 0) - (a.price ?? 0));
-      if (sortKey === "title") list = list.slice().sort((a, b) => a.title.localeCompare(b.title));
-      if (sortKey === "-date") list = list.slice().sort((a, b) => (b.publishedAt ?? b.photoAt ?? 0) - (a.publishedAt ?? a.photoAt ?? 0));
-      if (sortKey === "-seen") list = list.slice().sort((a, b) => (b.lastSeenAt ?? 0) - (a.lastSeenAt ?? 0));
+      const cmps = {
+        date: (a, b) => newestFirst(p.filters?.dateField || "auto")(b, a),           // crescente = dal meno recente
+        price: (a, b) => (a.price ?? 0) - (b.price ?? 0),
+        title: (a, b) => (a.title || "").localeCompare(b.title || "", "it"),
+        seen: (a, b) => (a.lastSeenAt ?? 0) - (b.lastSeenAt ?? 0),
+      };
+      if (cmps[sortKey]) list = list.slice().sort((a, b) => (dir === "asc" ? 1 : -1) * cmps[sortKey](a, b));
+      else if (dir === "asc") list = list.slice().reverse();
       const page = list.slice(offset, offset + limit).map((l) => ({
         ...l,
         interactions: sum[l.id] ? { like: sum[l.id].like, comment: sum[l.id].comment, offer: sum[l.id].offer, accounts: [...sum[l.id].accounts] } : null,

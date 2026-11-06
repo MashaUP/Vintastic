@@ -1,8 +1,8 @@
 {
-  "version": "1.0.1",
+  "version": "1.1.0",
   "date": "2026-11-06",
-  "zip": "Vintastic-1.0.1.zip",
+  "zip": "Vintastic-1.1.0.zip",
   "notes": [
-    "Una campagna simulata ora si può eseguire davvero su Vinted: le operazioni simulate tornano in coda passando alla modalità reale"
+    "Numero di annunci personalizzabile, ordine ribaltabile, «più recenti» funzionante anche senza data di pubblicazione, avviso di aggiornamento a metà, icona più grande"
   ]
 }

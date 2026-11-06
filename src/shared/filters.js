@@ -8,6 +8,7 @@
 import { seededRng } from "./util.js";
 
 export const DATE_FIELDS = {
+  auto: "Pubblicazione (se manca: data della foto, stima)",
   publishedAt: "Data di pubblicazione",
   updatedAt: "Data di aggiornamento",
   repostedAt: "Data di ripubblicazione",
@@ -36,9 +37,25 @@ export const SORTS = {
   random: "Casuale",
 };
 
-export function dateOf(listing, field = "publishedAt") {
+export function dateOf(listing, field = "auto") {
+  if (field === "auto") return dateOf(listing, "publishedAt") ?? dateOf(listing, "photoAt");
   const v = listing?.[field];
   return Number.isFinite(v) && v > 0 ? v : null;
+}
+
+/**
+ * Dal più recente: per data (campo scelto); a parità o senza data, l'ordine in cui
+ * Vinted ha restituito l'armadio («più recenti prima», scanRank).
+ */
+export function newestFirst(field = "auto") {
+  return (a, b) => {
+    const da = dateOf(a, field);
+    const db = dateOf(b, field);
+    if (da != null && db != null && da !== db) return db - da;
+    if (da != null && db == null) return -1;
+    if (da == null && db != null) return 1;
+    return (a.scanRank ?? Infinity) - (b.scanRank ?? Infinity);
+  };
 }
 
 /**
@@ -46,7 +63,7 @@ export function dateOf(listing, field = "publishedAt") {
  * @returns {{items:Array, noDate:number, total:number}}
  */
 export function applyFilters(listings, f = {}, now = Date.now()) {
-  const field = DATE_FIELDS[f.dateField] ? f.dateField : "publishedAt";
+  const field = DATE_FIELDS[f.dateField] ? f.dateField : "auto";
   let out = listings.slice();
   const total = out.length;
 
@@ -80,9 +97,11 @@ export function applyFilters(listings, f = {}, now = Date.now()) {
 
   const n = Number(f.topN);
   if (Number.isFinite(n) && n > 0) {
-    const withDate = out.filter((l) => dateOf(l, field) != null).sort((a, b) => dateOf(b, field) - dateOf(a, field));
-    if (range === "all") noDate += out.length - withDate.length;
-    out = withDate.slice(0, Math.floor(n));
+    // I più recenti: per data, poi nell'ordine di Vinted per gli annunci senza data (mai date inventate).
+    const sorted = out.slice().sort(newestFirst(field));
+    const usable = sorted.filter((l) => dateOf(l, field) != null || l.scanRank != null);
+    if (range === "all") noDate += sorted.length - usable.length;
+    out = usable.slice(0, Math.floor(n));
   }
   return { items: out, noDate, total };
 }
@@ -91,8 +110,8 @@ export function applyFilters(listings, f = {}, now = Date.now()) {
 export function sortItems(items, mode = "manual", seed = 1, pick = (x) => x.listing || x) {
   const arr = items.slice();
   switch (mode) {
-    case "newest": return arr.sort((a, b) => (dateOf(pick(b)) ?? 0) - (dateOf(pick(a)) ?? 0));
-    case "oldest": return arr.sort((a, b) => (dateOf(pick(a)) ?? Infinity) - (dateOf(pick(b)) ?? Infinity));
+    case "newest": { const cmp = newestFirst("auto"); return arr.sort((a, b) => cmp(pick(a), pick(b))); }
+    case "oldest": { const cmp = newestFirst("auto"); return arr.sort((a, b) => cmp(pick(b), pick(a))); }
     case "priceAsc": return arr.sort((a, b) => Number(pick(a).price ?? 0) - Number(pick(b).price ?? 0));
     case "priceDesc": return arr.sort((a, b) => Number(pick(b).price ?? 0) - Number(pick(a).price ?? 0));
     case "random": {

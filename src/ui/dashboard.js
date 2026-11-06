@@ -204,6 +204,9 @@ function showShortcuts() {
 function banners() {
   const o = ctx.overview || {};
   const out = [];
+  // File nuovi ma motore vecchio: succede se si sostituiscono i file senza ricaricare l'estensione.
+  if (o.version && o.version !== VERSION) out.push(h("div", { class: "kill-bar", role: "alert" }, h("b", {}, "Aggiornamento a metà. "),
+    `L'interfaccia è la v${VERSION} ma il motore è ancora la v${o.version}. `, h("button", { class: "btn sm primary", onclick: () => chrome.runtime.reload() }, "Ricarica Vintastic")));
   if (o.killSwitch) out.push(h("div", { class: "kill-bar", role: "alert" }, h("b", {}, "Kill Switch attivo. "), "Nessuna operazione può partire. ", h("button", { class: "btn sm", onclick: toggleKill }, "Spegni")));
   if (o.connectivity && o.connectivity.online === false) out.push(h("div", { class: "offline-bar", role: "status" }, h("b", {}, "Offline: sola lettura. "), "Puoi consultare i dati salvati; le interazioni sono sospese e riprendono quando Vinted torna raggiungibile."));
   if (o.authPending) out.push(h("div", { class: "offline-bar", role: "status" }, h("b", {}, "Verifica della sessione in corso. "), o.authPending.message, " ", h("button", { class: "btn sm", onclick: () => rpc("session.openLogin", { origin: o.authPending.origin }) }, "Apri Vinted")));

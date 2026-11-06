@@ -29,7 +29,7 @@
 | | |
 |---|---|
 | **Scanner degli armadi** | Legge tutti gli annunci di un venditore (paginazione, nessun doppione, aggiornamento dei dati, storico prezzi, annunci ripubblicati collegati). Date separate: pubblicazione, aggiornamento, ripubblicazione, data della foto. Mai inventate. |
-| **Filtri e Top N** | Ultimi 5/10/20/50/100 o N a scelta, ultime 24 ore / 2, 3, 7, 14, 30 giorni / intervallo, combinabili. Prezzo, stato, venditore, «escludi già fatti». Filtri salvabili. |
+| **Filtri e Top N** | Ultimi 5/10/20/50/100 o un numero a scelta, ultime 24 ore / 2, 3, 7, 14, 30 giorni / intervallo, combinabili. Prezzo, stato, venditore, «escludi già fatti». Ordine ribaltabile (più recenti o meno recenti in cima). Filtri salvabili. Vinted non dà la data di pubblicazione: si usa la data della foto (stima) e poi l'ordine dell'armadio. |
 | **Campagne** | Like e offerte, singoli o combinati, nell'ordine che scegli; timer configurabili (tra operazioni, tra annunci, tra tipi); conferma facoltativa per ogni offerta; simulazione (Dry Run). |
 | **Code dinamiche** | Aggiungi annunci e operazioni, rimuovi, modifica, cambia priorità, riordina (anche casuale, con anteprima) **mentre la campagna gira**. Le operazioni completate non si toccano. Ogni modifica è nello storico. |
 | **No Repeat** | Global Interaction Ledger: lo stesso account non ripete lo stesso like o la stessa offerta sullo stesso annuncio, in nessuna campagna. Separato per tipo. |
@@ -49,11 +49,11 @@
 
 | | |
 |---|---|
-| Versione | **1.0.1** |
+| Versione | **1.1.0** |
 | Browser | Chrome, Edge, Brave (Chromium ≥ 116). Provato in automatico su **Chrome 153**; Edge e Brave non sono stati provati in questo ciclo |
 | Verificato su Vinted reale | **No.** Tutto è stato provato su un Vinted finto (vedi [TEST_PLAN](docs/TEST_PLAN.md)). Gli endpoint di like, offerte e notifiche sono ricostruiti, non osservati: alla prima prova vera usa un solo annuncio |
 | Dipendenze a runtime | Nessuna. Nessun passaggio di build per usarla |
-| Test | 48 unitari + 19 scenari end-to-end in Chrome con l'estensione caricata |
+| Test | 49 unitari + 19 scenari end-to-end in Chrome con l'estensione caricata |
 
 ## Installazione
 
@@ -83,7 +83,7 @@ Tutto in **Impostazioni** (si salva subito, solo nel tuo browser):
 - **Notifiche**: categorie, durata, notifiche di sistema.
 - **FAB e widget**: attivi, dimensione, posizione.
 - **AI**: regole locali (predefinito) o endpoint compatibile OpenAI (Ollama/LM Studio in locale, o un servizio esterno).
-- **Discord**: webhook personale facoltativo ([guida](docs/DISCORD_SETUP.md)).
+- **Discord**: webhook personale facoltativo (Impostazioni › Discord spiega come crearlo).
 - **Backup**: esporta/importa JSON con anteprima, scelta delle parti e backup automatico.
 - **Dati**: conservazione di log, notifiche, attività.
 - **Scorciatoie**: `Alt+Shift+V` dashboard · `Alt+Shift+P` pausa/ripresa · `Alt+Shift+K` Kill Switch (modificabili in `chrome://extensions/shortcuts`). Nella dashboard: `Ctrl+K`, `/`, `Alt+1…9`, `?`.
@@ -104,7 +104,7 @@ Le release sono automatiche: scrivi titolo e descrizione, scegli il tag `vX.Y.Z`
 
 - **Release su Discord**: secret `DISCORD_WEBHOOK_URL` nel repository → notifica a ogni release.
 - **Notifiche dall'estensione** (facoltative): il *tuo* webhook, salvato solo nel tuo browser, con permesso concesso da te.
-- Guida passo passo: [DISCORD_SETUP.md](docs/DISCORD_SETUP.md). Community: **[discord.gg/EPsbQCuAkx](https://discord.gg/EPsbQCuAkx)** (il link si aggiorna da `links.json` senza nuove versioni).
+- Community: **[discord.gg/EPsbQCuAkx](https://discord.gg/EPsbQCuAkx)** (il link si aggiorna da `links.json` senza nuove versioni).
 
 ## Sicurezza e privacy
 
@@ -126,7 +126,7 @@ Dettagli: [SECURITY.md](SECURITY.md). Vintastic è un progetto indipendente, non
 
 ## Documentazione
 
-[Architettura](docs/ARCHITECTURE.md) · [Test](docs/TEST_PLAN.md) · [Release](docs/RELEASE.md) · [Discord](docs/DISCORD_SETUP.md) · [Sicurezza](SECURITY.md) · [Changelog](CHANGELOG.md)
+[Architettura](docs/ARCHITECTURE.md) · [Test](docs/TEST_PLAN.md) · [Release](docs/RELEASE.md) · [Sicurezza](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 ## Supporto
 

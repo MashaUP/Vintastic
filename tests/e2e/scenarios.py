@@ -65,8 +65,13 @@ async def t_install_and_ui(env):
     panel = await env.ctx.new_page()
     await panel.goto(f"chrome-extension://{env.ext}/src/ui/popup.html?mode=panel")
     await panel.wait_for_selector(".tabs")
+    await page.goto(f"chrome-extension://{env.ext}/src/ui/dashboard.html#")
+    await page.wait_for_selector("#page > *:not(.muted)")
+    check(await page.locator("text=Aggiornamento a metà").count() == 0, "nessun avviso di versione quando coincide")
+    await page.evaluate("window.__vt.overview.version = '0.9.0'; window.__vt.refresh()")
+    await page.wait_for_selector("text=Aggiornamento a metà", timeout=5000)
     check(not env.errors, f"errori JS: {env.errors}")
-    return "14 pagine, popup e side panel senza errori; onboarding aperto; db migrato a v3"
+    return "14 pagine, popup e side panel senza errori; onboarding aperto; db migrato a v3; avviso «motore vecchio»"
 
 
 async def t_onboarding_wizard(env):
@@ -117,16 +122,54 @@ async def t_scan_filters(env):
     check(len(ids) == len(set(ids)), "doppioni in archivio")
     sold = [l for l in allq["items"] if l["status"] == "sold"]
     check(len(sold) == 1, "stato venduto riconosciuto")
-    nodate = [l for l in allq["items"] if l["publishedAt"] is None]
-    check(len(nodate) == 13 and all(l["photoAt"] for l in nodate), "date mancanti non inventate, data foto separata")
+    check(all(l["publishedAt"] is None for l in allq["items"]), "nessuna data di pubblicazione inventata (come su Vinted)")
+    nophoto = [l for l in allq["items"] if l["photoAt"] is None]
+    check(len(nophoto) == 13, f"13 annunci senza nessuna data: {len(nophoto)}")
+    check(all(l.get("scanRank") is not None for l in allq["items"]), "posizione nell'ordine di Vinted salvata")
     top = await env.rpc("listings.query", {"filters": {"topN": 20, "range": "7d"}, "limit": 50})
-    check(top["total"] == 20, f"Top 20 ultimi 7 giorni: {top['total']}")
-    d = [l["publishedAt"] for l in top["items"]]
+    check(top["total"] == 20, f"Top 20 ultimi 7 giorni (data della foto): {top['total']}")
+    d = [l["photoAt"] for l in top["items"]]
     check(d == sorted(d, reverse=True), "Top N ordinato dal più recente")
+    top5 = await env.rpc("listings.query", {"filters": {"topN": 5, "range": "all", "dateField": "publishedAt"}, "limit": 50})
+    check([l["id"] for l in top5["items"]] == [str(900000 + i) for i in range(5)], f"senza date: i primi 5 nell'ordine di Vinted: {[l['id'] for l in top5['items']]}")
+    custom = await env.rpc("listings.query", {"filters": {"topN": 37}, "limit": 50})
+    check(custom["total"] == 37, f"numero personalizzato (37): {custom['total']}")
     r24 = await env.rpc("listings.query", {"filters": {"range": "24h"}, "limit": 500})
-    check(0 < r24["total"] < 20 and r24["noDate"] > 0, f"ultime 24 ore: {r24['total']} (senza data {r24['noDate']})")
+    check(0 < r24["total"] < 20 and r24["noDate"] == 13, f"ultime 24 ore: {r24['total']} (senza data {r24['noDate']})")
+    desc = await env.rpc("listings.query", {"filters": {}, "sort": "date", "dir": "desc", "limit": 3})
+    asc = await env.rpc("listings.query", {"filters": {}, "sort": "date", "dir": "asc", "limit": 130})
+    check(desc["items"][0]["id"] == "900000", f"più recenti in cima: {desc['items'][0]['id']}")
+    check(asc["items"][0]["photoAt"] is None or asc["items"][0]["id"] != "900000", "ordine ribaltato")
+    dated = [l["photoAt"] for l in asc["items"] if l["photoAt"]]
+    check(dated == sorted(dated), "crescente: dal meno recente")
+    pa = await env.rpc("listings.query", {"filters": {}, "sort": "price", "dir": "asc", "limit": 1})
+    pd = await env.rpc("listings.query", {"filters": {}, "sort": "price", "dir": "desc", "limit": 1})
+    check(pa["items"][0]["price"] < pd["items"][0]["price"], "prezzo crescente/decrescente")
     check(not env.fake.api_writes(), "la scansione non deve scrivere su Vinted")
-    return f"130 annunci in 2 pagine; ri-scansione 0 nuovi/130 aggiornati; Top20/7g={top['total']}, 24h={r24['total']}"
+    # Interfaccia: «Aggiungi annunci» con numero personalizzato e ultime 24 ore
+    page = env.ui
+    c = await env.rpc("campaigns.create", {"name": "Personalizzato", "types": ["like"], "dryRun": True})
+    await page.goto(f"chrome-extension://{env.ext}/src/ui/dashboard.html#campaigns/{c['id']}")
+    await page.reload()                     # chiude la guida iniziale aperta al primo avvio del profilo
+    await page.click("text=Aggiungi annunci")
+    await page.select_option(".modal select >> nth=1", "custom")
+    await page.fill(".modal input[type=number]", "7")
+    await page.select_option(".modal select >> nth=2", "7d")
+    await page.click(".modal-foot >> text=Aggiungi")
+    async def added():
+        x = await env.campaign(c["id"])
+        return x if x["items"] else None
+    x = await env.wait_for(added, 15, 0.5, "annunci aggiunti dal dialogo")
+    check(len(x["items"]) == 7, f"numero personalizzato dal dialogo: {len(x['items'])}")
+    # Annunci: pulsante per ribaltare l'ordine
+    await page.goto(f"chrome-extension://{env.ext}/src/ui/dashboard.html#listings")
+    await page.wait_for_selector("text=Più recenti in cima")
+    first_desc = await page.inner_text("table.table tbody tr >> nth=0")
+    await page.click("text=Più recenti in cima")
+    await page.wait_for_selector("text=Meno recenti in cima")
+    first_asc = await page.inner_text("table.table tbody tr >> nth=0")
+    check(first_desc != first_asc, "il pulsante ribalta la classifica")
+    return f"130 annunci; data della foto come ripiego, ordine di Vinted senza date; Top20/7g={top['total']}, 24h={r24['total']}; personalizzato 7 dal dialogo; ordine ribaltabile"
 
 
 async def t_campaign_real(env):
@@ -511,20 +554,20 @@ async def t_updates(env):
             if state["status"] != 200:
                 return await route.fulfill(status=state["status"], headers={"x-ratelimit-reset": str(int(time.time()) + 600)}, body="{}")
             return await route.fulfill(status=200, content_type="application/json", body=json.dumps({
-                "tag_name": "v1.1.0", "name": "Vintastic 1.1.0", "body": "- novità di prova", "html_url": "https://github.com/MashaUP/Vintastic/releases/tag/v1.1.0",
-                "assets": [{"name": "vintastic-1.1.0.zip", "browser_download_url": "https://github.com/MashaUP/Vintastic/releases/download/v1.1.0/vintastic-1.1.0.zip", "size": len(zip_bytes)},
-                           {"name": "vintastic-1.1.0.zip.sha256", "browser_download_url": "https://github.com/MashaUP/Vintastic/releases/download/v1.1.0/vintastic-1.1.0.zip.sha256"}]}))
+                "tag_name": "v9.9.0", "name": "Vintastic 9.9.0", "body": "- novità di prova", "html_url": "https://github.com/MashaUP/Vintastic/releases/tag/v9.9.0",
+                "assets": [{"name": "Vintastic-9.9.0.zip", "browser_download_url": "https://github.com/MashaUP/Vintastic/releases/download/v9.9.0/Vintastic-9.9.0.zip", "size": len(zip_bytes)},
+                           {"name": "Vintastic-9.9.0.zip.sha256", "browser_download_url": "https://github.com/MashaUP/Vintastic/releases/download/v9.9.0/Vintastic-9.9.0.zip.sha256"}]}))
         if u.endswith(".zip"):
             return await route.fulfill(status=200, content_type="application/zip", body=zip_bytes)
         if u.endswith(".sha256"):
-            return await route.fulfill(status=200, body=f"{state['sha']}  vintastic-1.1.0.zip\n")
+            return await route.fulfill(status=200, body=f"{state['sha']}  Vintastic-9.9.0.zip\n")
         return await route.fulfill(status=404, body="")
     env.github = gh
     await env.open_ui()
     st = await env.rpc("updates.check")
-    check(st["ok"] and st["available"] and st["latest"] == "1.1.0", f"aggiornamento: {st}")
+    check(st["ok"] and st["available"] and st["latest"] == "9.9.0", f"aggiornamento: {st}")
     notes = await env.rpc("notifications.list", {})
-    check(any("1.1.0" in n["title"] for n in notes), "notifica nuova versione")
+    check(any("9.9.0" in n["title"] for n in notes), "notifica nuova versione")
     d = await env.rpc("updates.download")
     check(d["verified"] and d["hash"] == good, f"download verificato: {d}")
     state["sha"] = "0" * 64

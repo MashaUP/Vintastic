@@ -2,6 +2,21 @@
 
 Tutte le modifiche rilevanti di Vintastic. Formato [Keep a Changelog](https://keepachangelog.com/it/1.1.0/), versioni [Semantic Versioning](https://semver.org/lang/it/).
 
+## [1.1.0] - 2026-11-06
+
+### Aggiunto
+- **Numero personalizzato** in «Aggiungi annunci alla coda» (oltre a 5, 10, 20, 50, 100).
+- **Ordine ribaltabile** nella pagina Annunci: per data, prezzo, titolo o «visti di recente», con un pulsante per mettere in cima i più recenti o i meno recenti.
+- **Avviso «aggiornamento a metà»** con pulsante «Ricarica Vintastic» quando i file sono nuovi ma il motore è ancora la versione vecchia (era la causa di «Metodo sconosciuto: campaigns.goLive»).
+
+### Corretto
+- «Ultimi N» e i periodi non trovavano niente su Vinted reale (**«Nessun annuncio con questi criteri»**): l'armadio di Vinted non dà la data di pubblicazione. Ora la data predefinita è «pubblicazione, altrimenti data della foto (stima)» e, senza date, vale l'ordine «più recenti prima» dell'armadio su Vinted. Nessuna data viene inventata.
+- Quando non ci sono annunci, il messaggio spiega il motivo (senza data, già fatti, periodo vuoto).
+- Icona nella barra del browser grande quanto le altre.
+
+### Modificato
+- Documentazione su Discord rimossa (le istruzioni restano in Impostazioni › Discord).
+
 ## [1.0.1] - 2026-11-06
 
 ### Corretto

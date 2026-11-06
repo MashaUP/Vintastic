@@ -94,7 +94,9 @@ function render() {
       h("a", { href: "#", onclick: async (e) => { e.preventDefault(); const r = await rpc("updates.check"); toast(r.ok ? (r.available ? `Disponibile la ${r.latest}` : "Sei all'ultima versione") : "Controllo non riuscito", r.error || "", r.ok ? "success" : "warning"); refresh(); } }, "Cerca aggiornamento"),
       "|", h("a", { href: links.discord?.url, target: "_blank" }, "Discord"), "|", h("a", { href: links.github?.url, target: "_blank" }, "GitHub"), "|", h("a", { href: links.kofi?.url, target: "_blank" }, "Ko-fi")));
 
-  root.replaceChildren(...[head, runCard, tabs, pane, foot].filter(Boolean));
+  const mismatch = o?.version && o.version !== VERSION ? h("div", { class: "callout bad small" }, h("b", {}, "Aggiornamento a metà: "), `motore v${o.version}, interfaccia v${VERSION}. `,
+    h("button", { class: "btn sm primary", onclick: () => chrome.runtime.reload() }, "Ricarica Vintastic")) : null;
+  root.replaceChildren(...[head, mismatch, runCard, tabs, pane, foot].filter(Boolean));
   root.removeAttribute("aria-busy");
 }
 

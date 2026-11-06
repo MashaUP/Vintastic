@@ -5,20 +5,20 @@
 ## Come si eseguono
 
 ```bash
-npm test                          # scripts/check.mjs + 48 test unitari (node:test, fake-indexeddb)
+npm test                          # scripts/check.mjs + 49 test unitari (node:test, fake-indexeddb)
 python3 tests/e2e/run_all.py      # 19 scenari in Chrome; rapporto in tests/e2e/artifacts/report.json
 actionlint .github/workflows/*.yml
 npm run build                     # ZIP + SHA-256
 ```
 
-## Test unitari (48/48 ✔)
+## Test unitari (49/49 ✔)
 
 | File | Copre |
 |---|---|
 | `offer.test.mjs` | arrotondamenti (,99 ,00 5 10, tre direzioni), modalità, sconti/incrementi, min/max, fasce, importi casuali (intervallo e riproducibilità), errori |
 | `queue.test.mjs` | aggiunte senza doppioni, ordine/priorità, una sola operazione alla volta, modifiche che rispettano il completato, rimozioni, riordino, retry solo dei falliti certi, progresso, macchine a stati |
 | `ledger-policy.test.mjs` | No Repeat per tipo/account, stati bloccanti, storico, annunci ripubblicati, Policy Validator (sessione, account, kill switch, snapshot, soglie, messaggio dopo una simulazione), differenze di snapshot |
-| `filters-timers.test.mjs` | Top N + periodo, intervalli, campo data scelto, ricerca/stato/prezzo, ordinamenti, timer (transizione, per tipo, tra annunci, minimo), soglie e azzeramento giornaliero |
+| `filters-timers.test.mjs` | data automatica (pubblicazione → foto → ordine di Vinted), Top N + periodo, intervalli, campo data scelto, ricerca/stato/prezzo, ordinamenti, timer (transizione, per tipo, tra annunci, minimo), soglie e azzeramento giornaliero |
 | `guard.test.mjs` | **divieto d'acquisto**: 14 percorsi d'acquisto bloccati, lista ammessa, pulsanti in 10 lingue, analisi statica del codice, guard caricato per primo, permessi del manifest |
 | `misc.test.mjs` | redazione, export senza segreti, import (bozze, running → verify), deduplicazione, semver e release GitHub, migrazione impostazioni v1→v3, normalizzazione annunci, suggerimenti, statistiche senza simulazioni |
 | `db-migrations.test.mjs` | db_v1→v2→v3 con dati conservati, installazione pulita 0→3, **rollback** su passo fallito |
@@ -37,7 +37,7 @@ npm run build                     # ZIP + SHA-256
 | 6 | Autenticazione assistita | ✔ | e2e: pausa `auth`, attesa, rilevamento del ritorno, notifica, ripresa dal punto esatto |
 | 7 | Scansione armadio | ✔ | 130 annunci in 2 pagine, ri-scansione senza doppioni |
 | 8 | Filtri temporali | ✔ | unit + e2e (24 ore, 7 giorni, personalizzato) |
-| 9 | Top N | ✔ | Top 20 degli ultimi 7 giorni, ordinati |
+| 9 | Top N | ✔ | Top 20 degli ultimi 7 giorni, numero personalizzato (anche dal dialogo), primi 5 nell'ordine di Vinted senza date, ordine ribaltabile |
 | 10 | Selezione annunci | ✔ | e2e via filtri e via wizard |
 | 11 | Like | ✔ | 3 like sul Vinted finto, stato letto prima e dopo |
 | 12 | Commenti | ✔ | Vinted non li supporta: diventano suggerimenti, nessun invio (verificato) |
@@ -87,6 +87,8 @@ npm run build                     # ZIP + SHA-256
 | actionlint | YAML del workflow di release non valido | corretto |
 | screenshot | nome della campagna tagliato nel widget; nome utente assente | layout del widget; lettura del nome dalla scheda Vinted |
 | popup | piè di pagina oltre i 600 px | compattato |
+| date (1.1.0) | «Nessun annuncio» su Vinted reale: l'armadio non dà la data di pubblicazione (il Vinted finto la dava) | data della foto e ordine dell'armadio come ripiego; il Vinted finto ora è senza date come quello vero |
+| ordinamento (1.1.0) | il vecchio ordinamento per prezzo ignorava la direzione | direzione rispettata |
 | simulazione (1.0.1) | dopo una simulazione la campagna non si poteva eseguire davvero | operazioni simulate rimesse in coda passando alla modalità reale |
 | account (flaky) | la verifica leggeva l'elenco prima del nome utente | attesa esplicita nel test; ripetuto 3 volte senza errori |
 

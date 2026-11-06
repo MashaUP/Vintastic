@@ -23,8 +23,8 @@ class FakeVinted:
                 "id": iid, "title": f"Giacca vintage {i}" if i % 3 == 0 else f"Jeans {i}",
                 "price": {"amount": f"{10 + i % 40}.0", "currency_code": "EUR"},
                 "path": f"/items/{iid}-articolo-{i}", "user": {"id": int(SELLER_ID), "login": "venditrice_test"},
-                "photo": {"id": 5000 + i, "url": f"https://images1.vinted.net/t/{i}.jpg", "high_resolution": {"timestamp": now - i * 7200}},
-                "created_at_ts": now - i * 7200 if i % 10 != 9 else None,
+                "photo": {"id": 5000 + i, "url": f"https://images1.vinted.net/t/{i}.jpg", "high_resolution": {"timestamp": now - i * 7200}} if i % 10 != 9 else {"id": 5000 + i, "url": f"https://images1.vinted.net/t/{i}.jpg"},
+                # Come su Vinted reale: l'armadio NON dà la data di pubblicazione, solo il timestamp della foto.
                 "is_favourite": False, "favourite_count": i % 5, "view_count": i * 3,
                 "is_closed": i == 5, "is_reserved": False,
             }

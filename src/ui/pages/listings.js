@@ -4,7 +4,7 @@ import { h, icon, rpc, toast, modal, fmtEuro, fmtDay, statusPill, downloadText }
 import { DATE_FIELDS, RANGES, TOP_N } from "../../shared/filters.js";
 import { OP_LABEL } from "../../shared/constants.js";
 
-const state = { filters: { range: "all", dateField: "publishedAt", topN: "", status: "all" }, offset: 0, sort: "default", selected: new Set(), allIds: null };
+const state = { filters: { range: "all", dateField: "auto", topN: "", status: "all" }, offset: 0, sort: "date", dir: "desc", selected: new Set(), allIds: null };
 
 const LST = { active: ["Attivo", "good"], sold: ["Venduto", "bad"], reserved: ["Riservato", "warn"], hidden: ["Nascosto", ""], unavailable: ["Non disponibile", ""] };
 
@@ -12,7 +12,7 @@ export async function render(ctx) {
   if (ctx.route.query.seller) state.filters.sellerId = ctx.route.query.seller;
   if (ctx.route.query.search) state.filters.search = ctx.route.query.search;
   const [res, sellers, saved] = await Promise.all([
-    rpc("listings.query", { filters: cleanFilters(), offset: state.offset, limit: 50, sort: state.sort, withIds: true }),
+    rpc("listings.query", { filters: cleanFilters(), offset: state.offset, limit: 50, sort: state.sort, dir: state.dir, withIds: true }),
     rpc("listings.sellers"), rpc("filters.list"),
   ]);
   state.allIds = res.ids;
@@ -58,7 +58,7 @@ export async function render(ctx) {
         const name = h("input", { class: "input", placeholder: "Es. Ultimi 20 · 7 giorni" });
         if (await modal("Salva filtri", name, [{ label: "Annulla", value: false }, { label: "Salva", value: true, cls: "primary" }]) && name.value.trim()) { await rpc("filters.save", { name: name.value.trim(), filters: state.filters }); toast("Filtri salvati"); ctx.refresh(); }
       } }, icon("download", 14), "Salva filtri"),
-      h("button", { class: "btn sm ghost", onclick: () => { state.filters = { range: "all", dateField: "publishedAt", topN: "", status: "all" }; state.offset = 0; ctx.navigate("#listings"); ctx.refresh(); } }, "Azzera")));
+      h("button", { class: "btn sm ghost", onclick: () => { state.filters = { range: "all", dateField: "auto", topN: "", status: "all" }; state.offset = 0; ctx.navigate("#listings"); ctx.refresh(); } }, "Azzera")));
 
   function dateInput(key) {
     const el = h("input", { class: "input", type: "date", value: f[key] ? new Date(Number(f[key])).toISOString().slice(0, 10) : "" });
@@ -79,11 +79,14 @@ export async function render(ctx) {
       await rpc("listings.delete", { ids: [...state.selected] }); state.selected.clear(); ctx.refresh();
     } }, icon("trash", 14), "Togli dall'archivio"));
 
-  const sortSel = h("select", { class: "input", style: { width: "200px" }, "aria-label": "Ordina" },
-    h("option", { value: "default" }, "Ordine dei filtri"), h("option", { value: "-date" }, "Più recenti"), h("option", { value: "price" }, "Prezzo crescente"),
-    h("option", { value: "-price" }, "Prezzo decrescente"), h("option", { value: "title" }, "Titolo"), h("option", { value: "-seen" }, "Visti di recente"));
+  const sortSel = h("select", { class: "input", style: { width: "190px" }, "aria-label": "Ordina per" },
+    h("option", { value: "date" }, "Data"), h("option", { value: "price" }, "Prezzo"), h("option", { value: "title" }, "Titolo"),
+    h("option", { value: "seen" }, "Visti di recente"), h("option", { value: "default" }, "Ordine dei filtri"));
   sortSel.value = state.sort;
-  sortSel.addEventListener("change", () => { state.sort = sortSel.value; ctx.refresh(); });
+  sortSel.addEventListener("change", () => { state.sort = sortSel.value; state.offset = 0; ctx.refresh(); });
+  const DIR = { date: ["Più recenti in cima", "Meno recenti in cima"], price: ["Più cari in cima", "Meno cari in cima"], title: ["Z → A", "A → Z"], seen: ["Visti di recente in cima", "Visti da più tempo in cima"], default: ["Ordine normale", "Ordine ribaltato"] }[state.sort] || ["Decrescente", "Crescente"];
+  const dirBtn = h("button", { class: "btn", title: "Ribalta l'ordine", "aria-label": `Ribalta l'ordine (ora: ${state.dir === "desc" ? DIR[0] : DIR[1]})`, onclick: () => { state.dir = state.dir === "desc" ? "asc" : "desc"; state.offset = 0; ctx.refresh(); } },
+    icon(state.dir === "desc" ? "down" : "up", 16), state.dir === "desc" ? DIR[0] : DIR[1]);
 
   const rows = res.items.map((l) => {
     const cb = h("input", { type: "checkbox", checked: state.selected.has(l.id), "aria-label": `Seleziona ${l.title}` });
@@ -97,7 +100,7 @@ export async function render(ctx) {
         h("div", { class: "muted small" }, [l.brand, l.size].filter(Boolean).join(" · ") || `id ${l.id}`), l.relistOf ? h("div", { class: "small" }, h("span", { class: "pill info" }, `ripubblicato da ${l.relistOf}`)) : null),
       h("td", {}, fmtEuro(l.price, l.currency)),
       h("td", { class: "small" }, l.sellerLogin || l.sellerId || "—"),
-      h("td", { class: "small" }, fmtDay(l.publishedAt), l.photoAt && !l.publishedAt ? h("div", { class: "muted" }, `foto: ${fmtDay(l.photoAt)}`) : null),
+      h("td", { class: "small" }, l.publishedAt ? fmtDay(l.publishedAt) : l.photoAt ? h("span", { title: "Vinted non fornisce la data di pubblicazione: questa è la data della foto principale (stima)" }, `${fmtDay(l.photoAt)} `, h("span", { class: "muted" }, "(foto)")) : "—"),
       h("td", { class: "small" }, fmtDay(l.updatedAt), l.repostedAt ? h("div", { class: "muted" }, `ripubbl.: ${fmtDay(l.repostedAt)}`) : null),
       h("td", {}, h("span", { class: `pill ${st[1]}` }, st[0])),
       h("td", {}, inter ? h("div", { class: "ops" }, ["like", "comment", "offer"].filter((t) => inter[t]).map((t) => h("span", { class: `op-chip ${inter[t]}`, title: inter[t] }, OP_LABEL[t]))) : h("span", { class: "muted small" }, "Mai elaborato")),
@@ -111,11 +114,12 @@ export async function render(ctx) {
     h("button", { class: "btn sm", disabled: state.offset + 50 >= res.total, onclick: () => { state.offset += 50; ctx.refresh(); } }, "Successivi →"));
 
   return h("div", { class: "grid" },
-    h("div", { class: "page-head" }, h("div", { class: "grow" }, h("h1", {}, "Annunci"), h("p", {}, "Tutto ciò che hai scansionato. Filtra, seleziona e manda in una campagna.")), sortSel),
+    h("div", { class: "page-head" }, h("div", { class: "grow" }, h("h1", {}, "Annunci"), h("p", {}, "Tutto ciò che hai scansionato. Filtra, seleziona e manda in una campagna.")),
+      h("label", { class: "field" }, "Ordina per", h("div", { class: "row" }, sortSel, dirBtn))),
     filtersBox, bulk,
     res.items.length ? h("div", { class: "table-wrap" }, h("table", { class: "table" },
       h("thead", {}, h("tr", {}, ["", "Immagine", "Titolo", "Prezzo", "Venditore", "Pubblicato", "Aggiornato", "Stato", "Interazioni", "Account", "Campagne"].map((x) => h("th", {}, x)))),
-      h("tbody", {}, rows)), pager) : h("div", { class: "empty" }, res.all ? "Nessun annuncio con questi filtri." : "Nessun annuncio: avvia una scansione dallo Scanner."));
+      h("tbody", {}, rows)), pager) : h("div", { class: "empty" }, res.all ? `Nessun annuncio con questi filtri.${res.noDate ? ` ${res.noDate} esclusi perché senza la data scelta: prova «Qualsiasi data».` : ""}` : "Nessun annuncio: avvia una scansione dallo Scanner."));
 }
 
 function cleanFilters() {

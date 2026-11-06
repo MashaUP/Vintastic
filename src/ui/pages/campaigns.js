@@ -279,14 +279,17 @@ async function sortDialog(ctx, c) {
 async function addListingsDialog(ctx, c) {
   const sellers = await rpc("listings.sellers");
   const seller = h("select", { class: "input" }, h("option", { value: "" }, "Tutti i venditori"), sellers.map((s) => h("option", { value: s.sellerId }, `${s.login || s.sellerId} (${s.count})`)));
-  const topN = h("select", { class: "input" }, [5, 10, 20, 50, 100].map((n) => h("option", { value: n }, `Ultimi ${n}`)), h("option", { value: "" }, "Tutti"));
+  const topN = h("select", { class: "input" }, [5, 10, 20, 50, 100].map((n) => h("option", { value: n }, `Ultimi ${n}`)), h("option", { value: "custom" }, "Numero personalizzato…"), h("option", { value: "" }, "Tutti"));
   topN.value = "20";
+  const customN = h("input", { class: "input", type: "number", min: 1, max: 5000, value: 15, "aria-label": "Quanti annunci", style: { display: "none", marginTop: "6px" } });
+  topN.addEventListener("change", () => { customN.style.display = topN.value === "custom" ? "" : "none"; if (topN.value === "custom") customN.focus(); });
   const range = h("select", { class: "input" }, h("option", { value: "all" }, "Qualsiasi data"), h("option", { value: "24h" }, "Ultime 24 ore"), h("option", { value: "3d" }, "Ultimi 3 giorni"), h("option", { value: "7d" }, "Ultimi 7 giorni"), h("option", { value: "30d" }, "Ultimi 30 giorni"));
   const types = OP_TYPES.map((t) => ({ t, cb: h("input", { type: "checkbox", checked: (c.opsDefaults?.types || []).includes(t) }) }));
   const where = h("select", { class: "input" }, h("option", { value: "end" }, "In fondo"), h("option", { value: "start" }, "In cima"));
   const excl = h("input", { type: "checkbox", checked: true });
   const ok = await modal("Aggiungi annunci alla coda", h("div", { class: "grid" },
-    h("label", { class: "field" }, "Venditore", seller), h("div", { class: "row" }, h("label", { class: "field grow" }, "Quanti", topN), h("label", { class: "field grow" }, "Periodo", range)),
+    h("label", { class: "field" }, "Venditore", seller), h("div", { class: "row", style: { alignItems: "flex-start" } }, h("label", { class: "field grow" }, "Quanti (i più recenti)", topN, customN), h("label", { class: "field grow" }, "Periodo", range)),
+    h("p", { class: "small muted", style: { margin: 0 } }, "«Più recenti»: per data di pubblicazione; se Vinted non la dà, per data della foto e poi nell'ordine dell'armadio su Vinted."),
     h("label", { class: "check" }, excl, "Escludi annunci su cui le operazioni scelte sono già state fatte"),
     h("div", {}, h("div", { class: "small muted" }, "Operazioni"), h("div", { class: "row" }, types.map(({ t, cb }) => h("label", { class: "check" }, cb, OP_LABEL[t])))),
     h("label", { class: "field" }, "Posizione", where),
@@ -294,8 +297,19 @@ async function addListingsDialog(ctx, c) {
   [{ label: "Annulla", value: false }, { label: "Aggiungi", value: true, cls: "primary" }]);
   if (!ok) return;
   const chosen = types.filter((x) => x.cb.checked).map((x) => x.t);
-  const res = await rpc("listings.query", { filters: { sellerId: seller.value || undefined, topN: topN.value, range: range.value, status: "active", excludeDone: excl.checked ? chosen.filter((t) => t !== "comment") : undefined }, limit: 500, withIds: true });
-  if (!res.ids.length) return toast("Nessun annuncio con questi criteri", "", "warning");
+  const n = topN.value === "custom" ? Math.max(1, Math.floor(Number(customN.value) || 0)) : topN.value;
+  if (topN.value === "custom" && !(n > 0)) return toast("Scrivi quanti annunci", "", "warning");
+  const base = { sellerId: seller.value || undefined, topN: n, range: range.value, dateField: "auto", status: "active" };
+  const res = await rpc("listings.query", { filters: { ...base, excludeDone: excl.checked ? chosen.filter((t) => t !== "comment") : undefined }, limit: 5000, withIds: true });
+  if (!res.ids.length) {
+    // Perché è vuoto: si spiega invece di dire solo «nessun annuncio».
+    const noExcl = excl.checked ? await rpc("listings.query", { filters: base, limit: 1 }) : res;
+    const why = [];
+    if (res.noDate) why.push(`${res.noDate} annunci esclusi perché senza data nel periodo scelto`);
+    if (excl.checked && noExcl.total > 0) why.push(`${noExcl.total} annunci esclusi perché le operazioni scelte sono già state fatte`);
+    if (!why.length) why.push(range.value !== "all" ? "nessun annuncio attivo in questo periodo: prova «Qualsiasi data»" : "nessun annuncio attivo per questo venditore: rifai la scansione");
+    return toast("Nessun annuncio con questi criteri", why.join(" · "), "warning", 9000);
+  }
   const r = await rpc("campaigns.add", { id: c.id, listingIds: res.ids, spec: { types: chosen }, where: where.value });
   toast(`${r.added} annunci aggiunti`, r.rejected.length ? `${r.rejected.length} già presenti` : "", "success");
   ctx.refresh();

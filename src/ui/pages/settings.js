@@ -85,7 +85,7 @@ export async function render(ctx) {
     discord: () => {
       const url = h("input", { class: "input", type: "password", value: s.discord.webhookUrl || "", placeholder: "https://discord.com/api/webhooks/…", autocomplete: "off" });
       return h("div", { class: "grid" },
-        h("div", { class: "callout info small" }, "Facoltativo. Il webhook è TUO e resta solo in questo browser: non è nel codice, non è nel repository e non viene esportato. Le notifiche delle release partono invece da GitHub Actions con il secret DISCORD_WEBHOOK_URL (vedi DISCORD_SETUP.md)."),
+        h("div", { class: "callout info small" }, "Facoltativo. Il webhook è TUO e resta solo in questo browser: non è nel codice, non è nel repository e non viene esportato. Le notifiche delle release partono invece da GitHub Actions con il secret DISCORD_WEBHOOK_URL nel repository."),
         h("label", { class: "field" }, "URL del webhook", url),
         h("div", { class: "row" },
           h("button", { class: "btn primary", onclick: async () => {

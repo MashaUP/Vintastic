@@ -35,7 +35,7 @@ Se un job fallisce dopo la pubblicazione: correggi, carica su `main`, sposta il 
 | Nome | Obbligatorio | Uso |
 |---|---|---|
 | `GITHUB_TOKEN` | automatico | allegare i file alla release |
-| `DISCORD_WEBHOOK_URL` | no | annuncio delle release su Discord ([guida](DISCORD_SETUP.md)) |
+| `DISCORD_WEBHOOK_URL` | no | annuncio delle release su Discord (Settings › Secrets and variables › Actions) |
 
 Nessun segreto va nel repository: `scripts/check.mjs` blocca la release se trova webhook Discord, token GitHub o chiavi API nei file.
 

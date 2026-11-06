@@ -64,6 +64,7 @@ export function normalizeListing(raw, origin, extra = {}) {
     repostedAt: ts(raw.last_push_up_at ?? raw.pushed_up_at ?? raw.push_up?.at),
     photoAt: ts(mainPhoto?.high_resolution?.timestamp),
     scannedBy: extra.scannedBy || null,
+    scanRank: null,
   };
 }
 
