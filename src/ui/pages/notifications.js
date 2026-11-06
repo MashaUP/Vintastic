@@ -25,7 +25,8 @@ export async function render(ctx) {
     h("div", { class: "panel-head" }, h("h2", {}, icon("bell"), "Centro notifiche"), h("span", { class: "grow" }),
       h("button", { class: "btn sm", onclick: async () => { await rpc("notifications.read", {}); ctx.refresh(); } }, icon("check", 14), "Segna tutte come lette"),
       h("button", { class: "btn sm", onclick: () => rpc("notifications.test").then(() => toast("Notifica di prova inviata")) }, "Prova"),
-      h("button", { class: "btn sm danger", onclick: async () => { if (await confirmBox("Svuotare lo storico?", "Si cancellano le notifiche lette.", "Svuota", true)) { await rpc("notifications.delete", { ids: notes.filter((n) => n.read).map((n) => n.id) }); ctx.refresh(); } } }, icon("trash", 14), "Elimina lette")),
+      h("button", { class: "btn sm", onclick: async () => { const r = await rpc("notifications.delete", { ids: notes.filter((n) => n.read).map((n) => n.id) }); toast(`${r.deleted} notifiche lette eliminate`); ctx.refresh(); } }, icon("trash", 14), "Elimina lette"),
+      h("button", { class: "btn sm danger", onclick: async () => { if (await confirmBox("Eliminare tutte le notifiche?", `Si cancellano tutte le ${notes.length} notifiche, lette e non lette, comprese quelle persistenti.`, "Elimina tutte", true)) { const r = await rpc("notifications.delete", { all: true }); toast(`${r.deleted} notifiche eliminate`, "", "success"); ctx.refresh(); } } }, icon("trash", 14), "Elimina tutte")),
     h("div", { class: "toolbar" }, h("label", { class: "field" }, "Gravità", sel("level", LEVEL)), h("label", { class: "field" }, "Categoria", sel("category", CAT)),
       h("label", { class: "check" }, h("input", { type: "checkbox", checked: filt.unread, onchange: (e) => { filt.unread = e.target.checked; ctx.refresh(); } }), "Solo non lette"),
       h("label", { class: "check" }, h("input", { type: "checkbox", checked: filt.group, onchange: (e) => { filt.group = e.target.checked; ctx.refresh(); } }), "Raggruppa")),
@@ -37,7 +38,8 @@ export async function render(ctx) {
         h("div", {}, h("b", {}, n.title), g.length > 1 || n.count > 1 ? h("span", { class: "pill", style: { marginLeft: "6px" } }, `×${Math.max(g.length, n.count || 1)}`) : null, n.persistent ? h("span", { class: "pill warn", style: { marginLeft: "6px" } }, "persistente") : null,
           h("div", { class: "small muted" }, n.body), h("div", { class: "small muted" }, `${CAT[n.category] || n.category} · ${fmtDate(n.at)}`)),
         h("div", { class: "row" }, n.link ? h("a", { class: "btn sm", href: n.link.startsWith("#") ? n.link : n.link, target: n.link.startsWith("#") ? null : "_blank", onclick: () => rpc("notifications.read", { ids: g.map((x) => x.id) }) }, "Apri") : null,
-          !n.read ? h("button", { class: "btn ghost sm", "aria-label": "Segna come letta", onclick: async () => { await rpc("notifications.read", { ids: g.map((x) => x.id) }); ctx.refresh(); } }, icon("check", 14)) : null));
+          !n.read ? h("button", { class: "btn ghost sm", title: "Segna come letta", "aria-label": "Segna come letta", onclick: async () => { await rpc("notifications.read", { ids: g.map((x) => x.id) }); ctx.refresh(); } }, icon("check", 14)) : null,
+          h("button", { class: "btn ghost sm", title: "Elimina", "aria-label": "Elimina la notifica", onclick: async () => { await rpc("notifications.delete", { ids: g.map((x) => x.id) }); ctx.refresh(); } }, icon("trash", 14))));
     })) : h("div", { class: "empty", style: { marginTop: "10px" } }, "Nessuna notifica."));
 
   statusNode = h("div", {});

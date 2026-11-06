@@ -64,7 +64,7 @@
   // ---------------------------------------------------------------- lettura annuncio
 
   /** Dati dell'annuncio: API se disponibile, altrimenti dati incorporati nella pagina. */
-  async function readItem(id) {
+  async function readItem(id, { apiOnly = false } = {}) {
     const r = await api().request("GET", `/items/${id}`, { timeoutMs: 20_000 });
     if (r.ok && r.data?.item) {
       const it = r.data.item;
@@ -72,6 +72,7 @@
     }
     if (r.kind && ["captcha", "blocked", "rate", "auth"].includes(r.kind)) return { error: r };
     if (r.kind === "notFound" && !onItemPage(id)) return { notFound: true };
+    if (apiOnly) return { source: "none", isFavourite: null };
     return readItemFromPage(id);
   }
 
@@ -141,9 +142,11 @@
     }
     // Verifica dopo l'invio, se lo stato si può rileggere.
     await sleep(800);
-    const after = await readItem(id);
+    // Solo l'API dice lo stato attuale: i dati incorporati nella pagina sono quelli del
+    // caricamento (prima del like) e direbbero sempre «non piace».
+    const after = await readItem(id, { apiOnly: true });
     if (after.isFavourite === true) return { outcome: "done", sent: true, message: "Like confermato", capability: { name: "favourite", value: true, detail: "toggle + rilettura" } };
-    if (after.isFavourite === false) return { outcome: "uncertain", sent: true, message: "Vinted ha risposto OK ma il like non risulta: da verificare" };
+    if (after.isFavourite === false && after.source === "api") return { outcome: "uncertain", sent: true, message: "Vinted ha risposto OK ma il like non risulta: da verificare" };
     return { outcome: "done", sent: true, message: "Vinted ha confermato la richiesta (stato non rileggibile)", capability: { name: "favourite", value: true, detail: "toggle OK, rilettura non disponibile" } };
   };
 

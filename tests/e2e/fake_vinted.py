@@ -37,6 +37,8 @@ class FakeVinted:
         self.fail = {}              # path regex -> status / "abort" / ("delay", s)
         self.captcha_items = set()
         self.price_override = {}
+        self.item_api = True            # False: GET /items/:id non disponibile (come può succedere su Vinted reale)
+        self.min_offer_ratio = None     # es. 0.9: offerte sotto il 90% del prezzo rifiutate
 
     # ------------------------------------------------------------------ html
     def _page(self, body, title="Vinted"):
@@ -77,6 +79,8 @@ class FakeVinted:
             return (200, {"user": {"id": int(m.group(1)), "login": "andrea_test", "item_count": 12}}) if self.logged_in else (401, {})
         m = re.match(r"^/items/(\d+)$", path)
         if m and method == "GET":
+            if not self.item_api:
+                return 404, {"message": "not found"}
             iid = int(m.group(1))
             it = self.items.get(iid)
             if not it:
@@ -96,8 +100,8 @@ class FakeVinted:
         if m and method == "POST":
             price = float(body["offer_request"]["price"])
             iid = next((i for i in self.items if 50000 + i % 10000 == int(m.group(1))), None)
-            if price < 1:
-                return 422, {"errors": [{"field": "price", "value": "troppo basso"}]}
+            if price < 1 or (self.min_offer_ratio and iid and price < float(self.items[iid]["price"]["amount"]) * self.min_offer_ratio):
+                return 422, {"errors": [{"field": "base", "value": "Il prezzo è troppo basso!"}]}
             self.offers.append((iid, price))
             return 200, {"offer_request": {"id": len(self.offers), "price": body["offer_request"]["price"]}}
         m = re.match(r"^/notifications\?(.*)$", path)

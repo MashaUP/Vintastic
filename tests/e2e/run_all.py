@@ -28,6 +28,9 @@ ORDER = [
     ("prestazioni 5000 annunci", S.t_performance),
     ("Health Center, kill switch, circuit breaker", S.t_health_kill),
     ("Discord webhook", S.t_discord),
+    ("like senza API di lettura", S.t_like_without_item_api),
+    ("offerte rifiutate, regole +5%, eliminazioni", S.t_offer_rules_and_cleanup),
+    ("risoluzione in blocco", S.t_resolve_all),
 ]
 
 

@@ -34,7 +34,7 @@ export const $ = (sel, root = document) => root.querySelector(sel);
 
 export async function rpc(method, params = {}) {
   const r = await chrome.runtime.sendMessage({ type: "vt:rpc", method, params });
-  if (r && r.ok === false && r.error) throw new Error(r.error);
+  if (r && r.__vtError) throw new Error(r.error);
   return r;
 }
 

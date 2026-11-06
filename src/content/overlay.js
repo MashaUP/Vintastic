@@ -12,7 +12,7 @@
   const VT = (window.VT = window.VT || {});
 
   const rpc = (method, params = {}) => chrome.runtime.sendMessage({ type: "vt:rpc", method, params }).then((r) => {
-    if (r && r.ok === false && r.error) throw new Error(r.error);
+    if (r && r.__vtError) throw new Error(r.error);
     return r;
   });
 

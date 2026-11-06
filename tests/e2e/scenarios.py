@@ -786,3 +786,102 @@ async def t_sim_then_live(env):
     check(env.fake.favourites == {int(i) for i in ids}, f"like inviati davvero: {env.fake.favourites}")
     check(len(env.fake.offers) == 2, f"offerte inviate davvero: {env.fake.offers}")
     return "simulazione → «Esegui davvero su Vinted» → 2 like e 2 offerte inviate; commenti restano suggerimenti"
+
+
+async def t_like_without_item_api(env):
+    """Bug 1.1.0: like messo ma «da verificare» perché la rilettura usava i dati vecchi della pagina."""
+    env.fake.item_api = False                     # GET /items/:id non disponibile: resta solo la pagina
+    await env.open_ui()
+    await env.fast_settings()
+    await env.login_vinted()
+    await scan(env)
+    c, ids = await make_campaign(env, 3, ("like",))
+    await env.rpc("campaigns.approve", {"id": c["id"]})
+    await env.rpc("campaigns.start", {"id": c["id"]})
+    done = await finished(env, c["id"], 90, ("completed", "paused"))
+    p = done["progress"]
+    check(done["status"] == "completed" and p["completed"] == 3 and p["verify"] == 0, f"like confermati, nessun «da verificare»: {done['status']} {p}")
+    check(env.fake.favourites == {int(i) for i in ids}, "like messi su Vinted")
+    toggles = [r for r in env.fake.requests if r[1].endswith("/user_favourites/toggle")]
+    check(len(toggles) == 3, f"un solo toggle per annuncio (nessun like tolto): {len(toggles)}")
+    return "3 like senza API di lettura: completati, nessun falso «da verificare», un toggle per annuncio"
+
+
+async def t_offer_rules_and_cleanup(env):
+    """Offerta rifiutata (prezzo troppo basso) → nuove regole +5% → ricalcolo e invio; eliminazione campagne e notifiche; risoluzione in blocco."""
+    env.fake.min_offer_ratio = 0.9
+    await env.open_ui()
+    await env.fast_settings()
+    await env.login_vinted()
+    await scan(env)
+    c, ids = await make_campaign(env, 3, ("offer",))                     # -20%: Vinted finto rifiuta sotto il 90%
+    await env.rpc("campaigns.approve", {"id": c["id"]})
+    await env.rpc("campaigns.start", {"id": c["id"]})
+    p = await finished(env, c["id"], 60, ("paused", "completed"))
+    items = (await env.campaign(c["id"]))["items"]
+    errs = [o["error"] for i in items for o in i["ops"] if o["status"] == "failed"]
+    check(len(errs) == 3 and all("troppo basso" in e for e in errs), f"offerte rifiutate con il messaggio di Vinted: {errs}")
+    br = await env.rpc("health.breakers")
+    check(br.get("offer", {}).get("state") != "open", f"un importo rifiutato non spegne il modulo offerte: {br}")
+    # Nuove regole: predefinite (+5%)
+    await env.rpc("campaigns.update", {"id": c["id"], "patch": {"opsDefaults": {**(await env.campaign(c["id"]))["campaign"]["opsDefaults"], "offerCfg": None}}})
+    data = await env.campaign(c["id"])
+    amounts = {i["listingId"]: o["amount"] for i in data["items"] for o in i["ops"]}
+    for lid, amt in amounts.items():
+        base = float(env.fake.items[int(lid)]["price"]["amount"])
+        check(abs(amt - round(base * 1.05, 2)) < 0.011, f"ricalcolo a +5%: {amt} su {base}")
+    check(all(o["status"] == "waiting" for i in data["items"] for o in i["ops"]), "offerte rifiutate di nuovo in coda")
+    await env.rpc("campaigns.approve", {"id": c["id"]})
+    r = await env.rpc("campaigns.start", {"id": c["id"]})
+    check(r["ok"], f"ripartenza: {r}")
+    await finished(env, c["id"], 60)
+    check(len(env.fake.offers) == 3 and all(pr > float(env.fake.items[iid]["price"]["amount"]) for iid, pr in env.fake.offers), f"offerte +5% inviate: {env.fake.offers}")
+    # Predefinito delle nuove campagne: +5%
+    c2 = await env.rpc("campaigns.create", {"name": "Default", "types": ["offer"], "dryRun": True, "listingIds": [ids[0]]})
+    pv = await env.rpc("campaigns.preview", {"id": c2["id"]})
+    a2 = pv["items"][0]["ops"][0]["amount"]
+    check(abs(a2 - round(float(env.fake.items[int(ids[0])]["price"]["amount"]) * 1.05, 2)) < 0.011, f"nuova campagna a +5%: {a2}")
+    # Eliminazione: una campagna in corso + altre, poi tutte
+    c3, _ = await make_campaign(env, 4, ("like",), dry=True, timers={"betweenOps": {"min": 0, "max": 0}, "betweenItems": {"min": 30, "max": 30}})
+    await env.rpc("campaigns.approve", {"id": c3["id"]})
+    await env.rpc("campaigns.start", {"id": c3["id"]})
+    await asyncio.sleep(2)
+    r = await env.rpc("campaigns.deleteMany", {"ids": [c3["id"]]})
+    check(r["deleted"] == 1, f"campagna in corso eliminata: {r}")
+    r = await env.rpc("campaigns.deleteMany", {"all": True})
+    check(not await env.rpc("campaigns.list"), f"tutte eliminate: {r}")
+    led = await env.rpc("ledger.list", {})
+    check(len([e for e in led if e["status"] == "completed"]) == 3, "il registro anti-duplicati resta")
+    # Notifiche: elimina tutte
+    check(len(await env.rpc("notifications.list", {})) > 0, "ci sono notifiche")
+    r = await env.rpc("notifications.delete", {"all": True})
+    check(r["deleted"] > 0 and not await env.rpc("notifications.list", {}), "tutte le notifiche eliminate")
+    # Salute si apre anche senza release su GitHub
+    page = env.ui
+    await page.goto(f"chrome-extension://{env.ext}/src/ui/dashboard.html#health")
+    await page.wait_for_selector("text=Esegui controllo completo", timeout=15000)
+    check("non si è caricata" not in await page.inner_text("#page"), "pagina Salute caricata")
+    return "rifiuto «prezzo troppo basso» senza spegnere le offerte; regole +5% ricalcolate e inviate; eliminazione di campagne (anche in corso) e notifiche; Salute ok senza release"
+
+
+async def t_resolve_all(env):
+    """Recupero: risoluzione in blocco delle operazioni da verificare."""
+    await env.open_ui()
+    await env.fast_settings()
+    await env.login_vinted()
+    await scan(env)
+    c, ids = await make_campaign(env, 3, ("like",))
+    env.fake.fail[r"/user_favourites/toggle"] = 502          # risposta di errore del server: esito incerto
+    await env.rpc("settings.save", {"patch": {"maxConsecutiveFailures": 10}})
+    await env.rpc("campaigns.approve", {"id": c["id"]})
+    await env.rpc("campaigns.start", {"id": c["id"]})
+    async def three():
+        r = await env.rpc("recovery.list")
+        return r if len(r["verify"]) == 3 else None
+    await env.wait_for(three, 60, 0.5, "3 da verificare")
+    r = await env.rpc("recovery.resolveAll", {"type": "like", "done": True})
+    check(r["resolved"] == 3, f"risolte in blocco: {r}")
+    check(not (await env.rpc("recovery.list"))["verify"], "niente più da verificare")
+    led = [e for e in await env.rpc("ledger.list", {}) if e["status"] == "completed"]
+    check(len(led) == 3, "registro aggiornato: eseguite")
+    return "3 like «da verificare» segnati come eseguiti in un colpo, registro aggiornato"

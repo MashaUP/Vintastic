@@ -141,7 +141,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
   })().then((r) => sendResponse(r), (e) => {
     log({ level: "error", category: "js", message: `${msg.type}${msg.method ? `/${msg.method}` : ""}: ${e.message}`, stack: e.stack });
-    sendResponse({ ok: false, error: e.message, guard: Boolean(e.guard) });
+    sendResponse({ ok: false, error: e.message, guard: Boolean(e.guard), __vtError: true });
   });
   return true;
 });
@@ -363,7 +363,11 @@ async function rpc(method, p, sender) {
       return engine.createCampaign({ ...p, listings });
     }
     case "campaigns.update": return engine.updateCampaign(p.id, p.patch || {});
-    case "campaigns.delete": return engine.deleteCampaign(p.id);
+    case "campaigns.delete": return engine.deleteCampaigns([p.id]);
+    case "campaigns.deleteMany": {
+      const ids = p.all ? (await engine.listCampaigns()).map((c) => c.id) : (p.ids || []);
+      return engine.deleteCampaigns(ids);
+    }
     case "campaigns.add": {
       let listings = p.listings || [];
       if (p.listingIds?.length) listings = (await Promise.all(p.listingIds.map((id) => db.get("listings", String(id))))).filter(Boolean);
@@ -386,6 +390,17 @@ async function rpc(method, p, sender) {
     case "ledger.list": {
       const all = await db.getAll("ledger");
       return all.filter((e) => (!p.listingId || e.listingId === String(p.listingId)) && (!p.accountId || e.accountId === p.accountId)).sort((a, b) => b.at - a.at).slice(0, p.limit || 500);
+    }
+    case "recovery.resolveAll": {
+      // L'utente ha controllato su Vinted: tutte le operazioni «da verificare» (filtrate per tipo) erano andate / non erano andate.
+      const items = await db.getAll("items");
+      let n = 0;
+      for (const i of items) for (const o of i.ops) {
+        if (o.status !== "verify" || (p.type && o.type !== p.type)) continue;
+        await engine.mutateQueue(i.campaignId, "resolveVerify", { id: i.id, opId: o.id, done: Boolean(p.done) });
+        n++;
+      }
+      return { resolved: n };
     }
     case "recovery.list": {
       const items = await db.getAll("items");
@@ -412,7 +427,13 @@ async function rpc(method, p, sender) {
     // notifiche
     case "notifications.list": return (await db.getAll("notifications")).sort((a, b) => b.at - a.at).slice(0, p.limit || 300);
     case "notifications.read": await notifyMod.markRead(p.ids || null); return true;
-    case "notifications.delete": { for (const id of p.ids || []) await db.del("notifications", id); await notifyMod.refreshBadge(); return true; }
+    case "notifications.delete": {
+      const ids = p.all ? (await db.getAll("notifications")).map((n) => n.id) : (p.ids || []);
+      for (const id of ids) await db.del("notifications", id);
+      await notifyMod.refreshBadge();
+      for (const id of ids) chrome.notifications?.clear(id);
+      return { deleted: ids.length };
+    }
     case "notifications.test": return notifyMod.notify({ category: "info", level: "info", title: "Notifica di prova", body: "Le notifiche di Vintastic funzionano." });
     case "cleaner.preview": return cleaner.preview(p.pages || 3);
     case "cleaner.clean": cleaner.clean(p.ids || []).catch(() => {}); return { started: true };

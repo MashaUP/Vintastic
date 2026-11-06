@@ -23,7 +23,7 @@ import * as health from "./health.js";
 import * as session from "./session.js";
 import * as connectivity from "./connectivity.js";
 import { suggestFor } from "./ai.js";
-import { uid, sleep } from "../shared/util.js";
+import { uid, sleep, stableStringify } from "../shared/util.js";
 import { OP_LABEL, OP_TYPES } from "../shared/constants.js";
 import { transitionCampaign, OP_PENDING } from "../shared/states.js";
 import { ledgerKey, canInteract, ledgerUpdate } from "../shared/ledger.js";
@@ -229,6 +229,7 @@ export function updateCampaign(id, patch) {
     const allowed = ["name", "dryRun", "timers", "skipRules", "opsDefaults", "accountId", "origin"];
     if (c.status === "running" && "dryRun" in patch && patch.dryRun !== c.dryRun) throw new Error("Metti in pausa la campagna prima di passare tra simulazione e modalità reale.");
     const goingLive = c.dryRun && patch.dryRun === false;
+    const offerChanged = "opsDefaults" in patch && stableStringify(patch.opsDefaults?.offerCfg || null) !== stableStringify(c.opsDefaults?.offerCfg || null);
     for (const k of allowed) if (k in patch) c[k] = patch[k];
     histC(c, "impostazioni modificate", Object.keys(patch).join(", "));
     let items = await campaignItems(id);
@@ -238,7 +239,25 @@ export function updateCampaign(id, patch) {
       await saveItems(items);
       histC(c, "passata in modalità reale", `${r.count} operazioni simulate rimesse in coda`);
     }
-    if ("dryRun" in patch || "accountId" in patch) c.snapshot = null;     // cambia il significato: va riapprovata
+    if (offerChanged) {
+      // Nuove regole: si ricalcolano le offerte in attesa e quelle rifiutate da Vinted per l'importo.
+      let n = 0;
+      items = items.map((i) => (i.removed ? i : {
+        ...i,
+        ops: i.ops.map((o) => {
+          if (o.type !== "offer") return o;
+          const rejected = o.status === "failed" && o.retryable === false;
+          if (!OP_PENDING.has(o.status) && !rejected) return o;
+          n++;
+          return { ...o, status: "waiting", amount: null, offerCfg: null, offerPreview: null, error: null, retryable: undefined, updatedAt: Date.now() };
+        }),
+      }));
+      items = fillOfferAmounts(c, items);
+      await saveItems(items);
+      if (n && ["completed", "stopped"].includes(c.status)) Object.assign(c, transitionCampaign(c, "ready"), { completedAt: null });
+      histC(c, "regole offerte cambiate", `${n} offerte ricalcolate`);
+    }
+    if ("dryRun" in patch || "accountId" in patch || offerChanged) c.snapshot = null;     // cambia il significato: va riapprovata
     await saveCampaign(c, items);
     return c;
   });
@@ -247,6 +266,37 @@ export function updateCampaign(id, patch) {
 /** Dopo una simulazione: stessa campagna, stesse operazioni, ora davvero su Vinted (da riapprovare). */
 export function goLive(id) {
   return updateCampaign(id, { dryRun: false });
+}
+
+/**
+ * Elimina più campagne, anche in corso: prima le ferma e aspetta che l'operazione
+ * in invio finisca (mai interrompere a metà una scrittura su Vinted). Il ledger resta.
+ */
+export async function deleteCampaigns(ids) {
+  const out = { deleted: 0, failed: [] };
+  for (const id of ids) {
+    try {
+      const c = await getCampaign(id);
+      if (!c) continue;
+      if (["running", "paused", "ready", "draft"].includes(c.status)) await stop(id);
+      for (let i = 0; i < 120; i++) {
+        const cur = await getCampaign(id);
+        const items = await campaignItems(id);
+        if (!cur?.current && !items.some((it) => it.ops.some((o) => o.status === "running"))) break;
+        await sleep(500);
+      }
+      await withLock(async () => {
+        for (const i of await campaignItems(id)) await db.del("items", i.id);
+        await db.del("campaigns", id);
+      });
+      broadcast("vt:campaign", { deleted: id });
+      out.deleted++;
+    } catch (e) {
+      out.failed.push({ id, error: e.message });
+    }
+  }
+  if (out.deleted) await activity("campaign", `${out.deleted} campagne eliminate`);
+  return out;
 }
 
 export function deleteCampaign(id) {
@@ -738,7 +788,8 @@ async function applyOutcome(c, item, op, res, tabId) {
     }
     case "failed": {
       await setLedger(c.accountId, item, op, "failed", c.id, { result: res.message });
-      await health.recordFailure(op.type, res.message || "errore");
+      // Un importo rifiutato (400/422) è un «no» a quell'offerta, non un guasto del modulo.
+      if (res.retryable !== false) await health.recordFailure(op.type, res.message || "errore");
       await log({ level: "error", category: "op", campaignId: c.id, listingId: item.listingId, opType: op.type, opId: op.id, message: `${label} fallito: ${res.message}`, data: { status: res.status } });
       const cur = await patchCampaign(c.id, (x) => { x.consecutiveFailures = (x.consecutiveFailures || 0) + 1; });
       await finishOp(c, item, op, "failed", { error: res.message, retryable: res.retryable !== false });

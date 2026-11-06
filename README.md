@@ -33,7 +33,7 @@
 | **Campagne** | Like e offerte, singoli o combinati, nell'ordine che scegli; timer configurabili (tra operazioni, tra annunci, tra tipi); conferma facoltativa per ogni offerta; simulazione (Dry Run). |
 | **Code dinamiche** | Aggiungi annunci e operazioni, rimuovi, modifica, cambia priorità, riordina (anche casuale, con anteprima) **mentre la campagna gira**. Le operazioni completate non si toccano. Ogni modifica è nello storico. |
 | **No Repeat** | Global Interaction Ledger: lo stesso account non ripete lo stesso like o la stessa offerta sullo stesso annuncio, in nessuna campagna. Separato per tipo. |
-| **Smart Offer Engine** | Risparmio / Interazione / Personalizzata; sconti e incrementi in % o €, minimo e massimo, fasce di prezzo, arrotondamenti (,99 · ,00 · multipli di 5 e 10, per eccesso/difetto/vicino), importi casuali. Anteprima sempre. |
+| **Smart Offer Engine** | Predefinito **+5% sul prezzo**; percentuale ± (sotto o sopra il prezzo), Risparmio / Interazione / Personalizzata, sconti e incrementi in % o €, minimo e massimo, fasce di prezzo, arrotondamenti (,99 · ,00 · multipli di 5 e 10, per eccesso/difetto/vicino), importi casuali. Anteprima sempre. |
 | **Suggerimenti AI** | Domande pertinenti all'annuncio (es. giacca → «Potresti indicarmi la misura delle spalle?»), più alternative, tono e lingua, cronologia. Regole locali o LLM (locale o esterno) a scelta. Si copiano: Vinted non ha commenti pubblici. |
 | **Mini-widget e FAB** | Sulle pagine Vinted: avanzamento in tempo reale, timer, pausa/riprendi/stop; menu rapido per scansionare l'armadio o aggiungere l'annuncio aperto. |
 | **Dashboard** | Statistiche con filtri temporali, grafici, attività in tempo reale, riepilogo code, stato del sistema; widget personalizzabili, tema chiaro/scuro, ricerca globale, comando rapido (Ctrl+K), scorciatoie. |
@@ -49,11 +49,11 @@
 
 | | |
 |---|---|
-| Versione | **1.1.0** |
+| Versione | **1.2.0** |
 | Browser | Chrome, Edge, Brave (Chromium ≥ 116). Provato in automatico su **Chrome 153**; Edge e Brave non sono stati provati in questo ciclo |
 | Verificato su Vinted reale | **No.** Tutto è stato provato su un Vinted finto (vedi [TEST_PLAN](docs/TEST_PLAN.md)). Gli endpoint di like, offerte e notifiche sono ricostruiti, non osservati: alla prima prova vera usa un solo annuncio |
 | Dipendenze a runtime | Nessuna. Nessun passaggio di build per usarla |
-| Test | 49 unitari + 19 scenari end-to-end in Chrome con l'estensione caricata |
+| Test | 50 unitari + 22 scenari end-to-end in Chrome con l'estensione caricata |
 
 ## Installazione
 

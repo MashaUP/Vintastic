@@ -5,13 +5,13 @@
 ## Come si eseguono
 
 ```bash
-npm test                          # scripts/check.mjs + 49 test unitari (node:test, fake-indexeddb)
-python3 tests/e2e/run_all.py      # 19 scenari in Chrome; rapporto in tests/e2e/artifacts/report.json
+npm test                          # scripts/check.mjs + 50 test unitari (node:test, fake-indexeddb)
+python3 tests/e2e/run_all.py      # 22 scenari in Chrome; rapporto in tests/e2e/artifacts/report.json
 actionlint .github/workflows/*.yml
 npm run build                     # ZIP + SHA-256
 ```
 
-## Test unitari (49/49 ✔)
+## Test unitari (50/50 ✔)
 
 | File | Copre |
 |---|---|
@@ -39,9 +39,9 @@ npm run build                     # ZIP + SHA-256
 | 8 | Filtri temporali | ✔ | unit + e2e (24 ore, 7 giorni, personalizzato) |
 | 9 | Top N | ✔ | Top 20 degli ultimi 7 giorni, numero personalizzato (anche dal dialogo), primi 5 nell'ordine di Vinted senza date, ordine ribaltabile |
 | 10 | Selezione annunci | ✔ | e2e via filtri e via wizard |
-| 11 | Like | ✔ | 3 like sul Vinted finto, stato letto prima e dopo |
+| 11 | Like | ✔ | 3 like sul Vinted finto, stato letto prima e dopo; anche senza API di lettura (nessun falso «da verificare») |
 | 12 | Commenti | ✔ | Vinted non li supporta: diventano suggerimenti, nessun invio (verificato) |
-| 13 | Offerte | ✔ | importi -20% con arrotondamento, inviati una volta |
+| 13 | Offerte | ✔ | importi -20% con arrotondamento, inviati una volta; predefinito +5%; «prezzo troppo basso» → nuove regole → ricalcolo e invio |
 | 14 | Combinazione operazioni | ✔ | like + offerta sullo stesso annuncio, nell'ordine scelto; simulazione → «Esegui davvero su Vinted» → invio reale (corretto nella 1.0.1) |
 | 15 | Timer | ✔ | unit + e2e (intervallo di 3 s tra annunci rispettato, nessun avanzamento in pausa) |
 | 16 | No Repeat | ✔ | campagna ripetuta: 6 saltate, 0 scritture |
@@ -87,6 +87,9 @@ npm run build                     # ZIP + SHA-256
 | actionlint | YAML del workflow di release non valido | corretto |
 | screenshot | nome della campagna tagliato nel widget; nome utente assente | layout del widget; lettura del nome dalla scheda Vinted |
 | popup | piè di pagina oltre i 600 px | compattato |
+| like (1.2.0) | like «da verificare» anche se messi: rilettura dai dati vecchi della pagina | dopo l'invio conta solo l'API; scenario «like senza API di lettura» |
+| Salute (1.2.0) | la pagina non si apriva senza release su GitHub | gli errori RPC sono marcati (`__vtError`), uno stato «ok: false» non è un errore |
+| offerte (1.2.0) | tre importi rifiutati spegnevano il modulo offerte | i rifiuti 400/422 non contano per il circuit breaker |
 | date (1.1.0) | «Nessun annuncio» su Vinted reale: l'armadio non dà la data di pubblicazione (il Vinted finto la dava) | data della foto e ordine dell'armadio come ripiego; il Vinted finto ora è senza date come quello vero |
 | ordinamento (1.1.0) | il vecchio ordinamento per prezzo ignorava la direzione | direzione rispettata |
 | simulazione (1.0.1) | dopo una simulazione la campagna non si poteva eseguire davvero | operazioni simulate rimesse in coda passando alla modalità reale |

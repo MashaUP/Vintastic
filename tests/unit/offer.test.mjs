@@ -62,3 +62,12 @@ test("prezzo mancante o regola che azzera: errore, mai un importo inventato", ()
   assert.equal(computeOffer(10, { mode: "custom", rule: { kind: "fixedOff", value: 20 }, rounding: { style: "none" } }).ok, false);
   assert.equal(normalizeOffer({ mode: "boh" }).mode, "saving");
 });
+
+test("percentuale ±: predefinito +5%, anche negativa; in Risparmio resta sotto il prezzo", () => {
+  const d = computeOffer(2, {});
+  assert.equal(d.ok, true);
+  assert.equal(d.amount, 2.1, "predefinito: +5% sul prezzo, centesimi esatti");
+  assert.equal(computeOffer(20, { rule: { kind: "percent", value: -10 } }).amount, 18);
+  assert.equal(computeOffer(20, { mode: "interaction", rule: { kind: "percent", value: 12 }, rounding: { style: "none" } }).amount, 22.4);
+  assert.ok(computeOffer(20, { mode: "saving", rule: { kind: "percent", value: 5 }, rounding: { style: "none" } }).amount < 20);
+});

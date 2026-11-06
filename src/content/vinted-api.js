@@ -48,7 +48,7 @@
   /** Esito di una richiesta, classificato. Non lancia mai per errori HTTP. */
   async function request(method, path, { body, referrer, timeoutMs = 30_000, retry403 = true } = {}) {
     VTGuard.assertRequestAllowed(method, path, body);    // lancia PurchaseGuardError se vietata
-    const init = { method, credentials: "include", headers: await headers(body !== undefined) };
+    const init = { method, credentials: "include", cache: "no-store", headers: await headers(body !== undefined) };
     if (body !== undefined) init.body = JSON.stringify(body);
     if (referrer) init.referrer = referrer;
     const ctrl = new AbortController();

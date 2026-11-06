@@ -45,7 +45,7 @@ class Env:
     async def rpc(self, method, params=None, page=None):
         p = page or self.ui
         r = await p.evaluate("([m,pr]) => chrome.runtime.sendMessage({type:'vt:rpc', method:m, params:pr})", [method, params or {}])
-        if isinstance(r, dict) and r.get("ok") is False and r.get("error"):
+        if isinstance(r, dict) and r.get("__vtError"):
             raise RuntimeError(f"{method}: {r['error']}")
         return r
 

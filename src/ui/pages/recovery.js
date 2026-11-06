@@ -1,6 +1,6 @@
 /** Campaign Recovery Center: operazioni da verificare, campagne interrotte, ripresa sicura. */
 
-import { h, icon, rpc, toast, fmtDate, fmtEuro, statusPill } from "../lib.js";
+import { h, icon, rpc, toast, fmtDate, fmtEuro, statusPill, confirmBox } from "../lib.js";
 import { OP_LABEL } from "../../shared/constants.js";
 
 export async function render(ctx) {
@@ -18,6 +18,19 @@ export async function render(ctx) {
       h("button", { class: "btn sm", onclick: async () => { await rpc("session.check", { origin: r.authPending.origin }); ctx.refresh(); } }, icon("refresh", 14), "Ricontrolla la sessione"))) : null,
     h("div", { class: "card" }, h("h3", {}, icon("lifebuoy", 16), `Da verificare (${r.verify.length})`),
       h("p", { class: "small muted" }, "Operazioni il cui esito non è certo. Controlla su Vinted e dimmi com'è andata. Per i like c'è anche la verifica automatica."),
+      r.verify.length > 1 ? h("div", { class: "row", style: { marginBottom: "10px" } },
+        r.verify.some((v) => v.op.type === "like") ? h("button", { class: "btn sm", onclick: async () => {
+          if (!(await confirmBox("Tutti i like sono stati messi?", "Segna come eseguiti tutti i like da verificare. Fallo solo se li hai controllati su Vinted.", "Sì, sono tutti presenti"))) return;
+          const x = await rpc("recovery.resolveAll", { type: "like", done: true }); toast(`${x.resolved} like segnati come eseguiti`, "", "success"); ctx.refresh();
+        } }, icon("check", 14), "Tutti i like: eseguiti") : null,
+        h("button", { class: "btn sm", onclick: async () => {
+          if (!(await confirmBox("Tutte eseguite?", "Segna come eseguite tutte le operazioni da verificare (like e offerte). Fallo solo se le hai controllate su Vinted.", "Sì, tutte eseguite"))) return;
+          const x = await rpc("recovery.resolveAll", { done: true }); toast(`${x.resolved} operazioni segnate come eseguite`, "", "success"); ctx.refresh();
+        } }, "Tutte: eseguite"),
+        h("button", { class: "btn sm ghost", onclick: async () => {
+          if (!(await confirmBox("Nessuna è arrivata?", "Segna come non eseguite tutte le operazioni da verificare: potranno essere ripetute con «Ripeti falliti».", "Sì, nessuna è arrivata"))) return;
+          const x = await rpc("recovery.resolveAll", { done: false }); toast(`${x.resolved} operazioni segnate come non eseguite`, "", "success"); ctx.refresh();
+        } }, "Tutte: non eseguite")) : null,
       r.verify.length ? h("div", { class: "table-wrap" }, h("table", { class: "table" },
         h("thead", {}, h("tr", {}, ["Campagna", "Annuncio", "Operazione", "Motivo", ""].map((x) => h("th", {}, x)))),
         h("tbody", {}, r.verify.map((v) => h("tr", {},

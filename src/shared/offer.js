@@ -16,6 +16,7 @@ export const OFFER_MODES = {
 };
 
 export const RULE_KINDS = {
+  percent: "Percentuale ± sul prezzo",
   percentOff: "Sconto %",
   percentUp: "Incremento %",
   fixedOff: "Sconto fisso €",
@@ -34,13 +35,14 @@ export const ROUNDING = {
 
 export const DIRECTIONS = { nearest: "Al più vicino", up: "Per eccesso", down: "Per difetto" };
 
+/** Predefinito: +5% sul prezzo, centesimi esatti (l'importante è che l'offerta parta). */
 export const DEFAULT_OFFER = {
-  mode: "saving",
-  rule: { kind: "percentOff", value: 15 },
+  mode: "interaction",
+  rule: { kind: "percent", value: 5 },
   bands: [],                // [{ upTo: 20, rule: {...} }] — la prima fascia con prezzo <= upTo vince
   min: null,
   max: null,
-  rounding: { style: "00", direction: "nearest" },
+  rounding: { style: "none", direction: "nearest" },
 };
 
 const cents = (n) => Math.round(Number(n) * 100) / 100;
@@ -70,6 +72,7 @@ export function roundAmount(x, style = "none", direction = "nearest") {
 function applyRule(price, rule, rng) {
   const value = Number(rule?.value ?? 0);
   switch (rule?.kind) {
+    case "percent": return { amount: price * (1 + value / 100), text: `${value >= 0 ? "+" : ""}${value}%` };
     case "percentOff": return { amount: price * (1 - value / 100), text: `-${value}%` };
     case "percentUp": return { amount: price * (1 + value / 100), text: `+${value}%` };
     case "fixedOff": return { amount: price - value, text: `-${value.toFixed(2)} €` };

@@ -1,8 +1,8 @@
 {
-  "version": "1.1.0",
-  "date": "2026-11-06",
-  "zip": "Vintastic-1.1.0.zip",
+  "version": "1.2.0",
+  "date": "2026-11-07",
+  "zip": "Vintastic-1.2.0.zip",
   "notes": [
-    "Numero di annunci personalizzabile, ordine ribaltabile, «più recenti» funzionante anche senza data di pubblicazione, avviso di aggiornamento a metà, icona più grande"
+    "Elimina campagne e notifiche, offerte in percentuale ± (predefinito +5%), like non più segnati «da verificare» per errore, pagina Salute senza errori"
   ]
 }

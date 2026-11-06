@@ -2,6 +2,21 @@
 
 Tutte le modifiche rilevanti di Vintastic. Formato [Keep a Changelog](https://keepachangelog.com/it/1.1.0/), versioni [Semantic Versioning](https://semver.org/lang/it/).
 
+## [1.2.0] - 2026-11-07
+
+### Aggiunto
+- **Eliminare campagne**: una, più (selezione) o tutte, anche in corso (vengono fermate dopo l'operazione in invio). Il registro anti-duplicati resta.
+- **Notifiche**: «Elimina tutte» e cestino sulla singola notifica.
+- **Offerte in percentuale ±**: una sola percentuale, negativa (sconto) o positiva (sopra il prezzo). **Predefinito +5%** sul prezzo, centesimi esatti.
+- Cambiando le regole delle offerte di una campagna, le offerte in attesa e quelle **rifiutate da Vinted per l'importo** vengono ricalcolate e si possono rimandare.
+- **Recupero**: risoluzione in blocco delle operazioni da verificare («Tutti i like: eseguiti», «Tutte: eseguite / non eseguite»).
+
+### Corretto
+- **Like segnati «da verificare» anche se messi**: dopo l'invio la rilettura usava i dati incorporati nella pagina, fermi al caricamento (prima del like). Ora conta solo una rilettura dall'API; senza, vale la conferma di Vinted.
+- La pagina **Salute** non si caricava finché su GitHub non c'è una release («Nessuna release pubblicata»): uno stato «ok: false» veniva scambiato per un errore.
+- Un'offerta **rifiutata per l'importo** («Il prezzo è troppo basso!») non spegne più il modulo offerte dopo tre volte.
+- «Elimina» nelle notifiche cancellava solo quelle già lette.
+
 ## [1.1.0] - 2026-11-06
 
 ### Aggiunto

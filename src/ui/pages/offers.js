@@ -25,7 +25,7 @@ export function offerEditor(initial = DEFAULT_OFFER, onChange = () => {}) {
       out.push(h("label", { class: "field" }, "Da", num(rule.from, (v) => { rule.from = v; }, { style: { width: "100px" } })));
       out.push(h("label", { class: "field" }, "A", num(rule.to, (v) => { rule.to = v; }, { style: { width: "100px" } })));
     } else {
-      out.push(h("label", { class: "field" }, /percent/.test(rule.kind) ? "Percentuale" : "Euro", num(rule.value, (v) => { rule.value = v; }, { style: { width: "110px" } })));
+      out.push(h("label", { class: "field" }, rule.kind === "percent" ? "Percentuale (− sconto, + aumento)" : /percent/.test(rule.kind) ? "Percentuale" : "Euro", num(rule.value, (v) => { rule.value = v; }, { style: { width: "110px" }, step: rule.kind === "percent" ? "1" : "0.01" })));
     }
     return out;
   }
@@ -33,12 +33,12 @@ export function offerEditor(initial = DEFAULT_OFFER, onChange = () => {}) {
     node.replaceChildren(
       h("div", { class: "row" }, h("label", { class: "field grow" }, "Modalità", sel(OFFER_MODES, cfg.mode, (v) => {
         cfg.mode = v;
-        if (v === "saving" && /Up$/.test(cfg.rule.kind)) cfg.rule = { kind: "percentOff", value: 15 };
-        if (v === "interaction" && /Off$/.test(cfg.rule.kind)) cfg.rule = { kind: "percentUp", value: 5 };
+        if (v === "saving" && (/Up$/.test(cfg.rule.kind) || (cfg.rule.kind === "percent" && cfg.rule.value >= 0))) cfg.rule = { kind: "percent", value: -10 };
+        if (v === "interaction" && /Off$/.test(cfg.rule.kind)) cfg.rule = { kind: "percent", value: 5 };
       }, "Modalità"))),
       h("p", { class: "small muted", style: { margin: 0 } }, {
         saving: "Risparmio: l'offerta resta sempre sotto il prezzo.",
-        interaction: "Interazione: consente anche importi pari o superiori al prezzo. Vinted potrebbe rifiutarli: lo scopri all'invio, con il suo messaggio.",
+        interaction: "Interazione: l'offerta può essere sotto o sopra il prezzo (es. +5% o −10%). Se Vinted rifiuta l'importo lo dice all'invio, con il suo messaggio.",
         custom: "Personalizzata: decidi tu regole, fasce e limiti.",
       }[cfg.mode]),
       h("div", { class: "row" }, ruleFields(cfg.rule, (r) => { cfg.rule = r; draw(); })),

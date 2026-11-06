@@ -18,13 +18,22 @@ export async function render(ctx) {
   if (ctx.route.params[0]) return detail(ctx, ctx.route.params[0]);
   if (ctx.route.query.new) setTimeout(() => createDialog(ctx), 50);
   const list = (await rpc("campaigns.list")).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const selected = new Set();
+  const delSel = h("button", { class: "btn danger", disabled: true, onclick: () => removeCampaigns(ctx, [...selected], list) }, icon("trash", 16), "Elimina selezionate");
+  const refreshSel = () => { delSel.disabled = !selected.size; delSel.lastChild.textContent = selected.size ? `Elimina selezionate (${selected.size})` : "Elimina selezionate"; };
+  const allBox = h("input", { type: "checkbox", "aria-label": "Seleziona tutte", onchange: (e) => {
+    document.querySelectorAll("input[data-camp]").forEach((cb) => { cb.checked = e.target.checked; e.target.checked ? selected.add(cb.dataset.camp) : selected.delete(cb.dataset.camp); });
+    refreshSel();
+  } });
   return h("div", { class: "grid" },
     h("div", { class: "page-head" }, h("div", { class: "grow" }, h("h1", {}, "Campagne"), h("p", {}, "Code di like e offerte sugli annunci che scegli tu, con il tuo account. Modificabili anche mentre girano.")),
       h("button", { class: "btn", onclick: () => rpc("campaigns.pauseAll").then(() => toast("Tutte in pausa")) }, icon("pause", 16), "Pausa tutte"),
       h("button", { class: "btn primary", onclick: () => createDialog(ctx) }, icon("plus", 16), "Nuova campagna")),
+    list.length ? h("div", { class: "row" }, delSel, h("button", { class: "btn ghost", onclick: () => removeCampaigns(ctx, list.map((c) => c.id), list) }, icon("trash", 16), `Elimina tutte (${list.length})`)) : null,
     list.length ? h("div", { class: "table-wrap" }, h("table", { class: "table" },
-      h("thead", {}, h("tr", {}, ["Nome", "Stato", "Modalità", "Operazioni", "Progresso", "Account", "Creata", ""].map((x) => h("th", {}, x)))),
+      h("thead", {}, h("tr", {}, h("th", {}, allBox), ["Nome", "Stato", "Modalità", "Operazioni", "Progresso", "Account", "Creata", ""].map((x) => h("th", {}, x)))),
       h("tbody", {}, list.map((c) => h("tr", {},
+        h("td", {}, h("input", { type: "checkbox", "data-camp": c.id, "aria-label": `Seleziona ${c.name}`, onchange: (e) => { e.target.checked ? selected.add(c.id) : selected.delete(c.id); refreshSel(); } })),
         h("td", {}, h("a", { href: `#campaigns/${c.id}`, style: { fontWeight: 650 } }, c.name), c.pauseReason && c.status === "paused" ? h("div", { class: "muted small" }, c.pauseDetail?.slice(0, 90)) : null),
         h("td", {}, statusPill(c.status)),
         h("td", {}, h("span", { class: `pill ${c.dryRun ? "" : "warn"}` }, c.dryRun ? "Simulazione" : "Reale")),
@@ -33,6 +42,18 @@ export async function render(ctx) {
         h("td", { class: "small" }, c.accountId?.split("@")[0] || "—"),
         h("td", { class: "small" }, ago(c.createdAt)),
         h("td", {}, h("a", { class: "btn sm", href: `#campaigns/${c.id}` }, "Apri"))))))) : h("div", { class: "empty" }, "Nessuna campagna. Scansiona un armadio, seleziona gli annunci e crea la prima campagna."));
+}
+
+async function removeCampaigns(ctx, ids, list) {
+  if (!ids.length) return;
+  const running = list.filter((c) => ids.includes(c.id) && ["running", "paused"].includes(c.status)).length;
+  const text = `${ids.length === 1 ? "La campagna verrà eliminata" : `${ids.length} campagne verranno eliminate`} con le loro code.${running ? ` ${running} in corso o in pausa: prima vengono fermate (l'operazione in invio finisce normalmente).` : ""} Il registro delle interazioni resta, così niente verrà ripetuto per sbaglio.`;
+  if (!(await confirmBox(ids.length === 1 ? "Eliminare la campagna?" : `Eliminare ${ids.length} campagne?`, text, "Elimina", true))) return;
+  toast("Eliminazione in corso…", "", "info", 2000);
+  const r = await rpc("campaigns.deleteMany", { ids });
+  toast(`${r.deleted} campagne eliminate`, r.failed.length ? `${r.failed.length} non eliminate: ${r.failed[0].error}` : "", r.failed.length ? "warning" : "success");
+  if (ctx.route.params[0] && ids.includes(ctx.route.params[0])) ctx.navigate("#campaigns");
+  else ctx.refresh();
 }
 
 // ------------------------------------------------------------------ creazione
@@ -134,7 +155,7 @@ async function detail(ctx, id) {
       previewDialog(ctx, id);
     } }, icon("zap", 16), "Esegui davvero su Vinted") : null,
     ["stopped", "completed"].includes(c.status) ? h("button", { class: "btn", onclick: () => act("campaigns.reopen") }, icon("refresh", 16), "Riapri") : null,
-    c.status !== "running" ? h("button", { class: "btn ghost", onclick: async () => { if (await confirmBox("Eliminare la campagna?", "Si cancellano la campagna e la sua coda. Il registro delle interazioni (anti-duplicazione) resta.", "Elimina", true)) { await rpc("campaigns.delete", { id }); ctx.navigate("#campaigns"); } } }, icon("trash", 16)) : null);
+    h("button", { class: "btn ghost", title: "Elimina la campagna", "aria-label": "Elimina la campagna", onclick: () => removeCampaigns(ctx, [id], [c]) }, icon("trash", 16)));
 
   const pauseBox = c.status === "paused" ? h("div", { class: `callout ${["user", "confirm"].includes(c.pauseReason) ? "info" : "warn"}` },
     h("b", {}, PAUSE_TEXT[c.pauseReason] || "In pausa"), c.pauseDetail ? h("div", { class: "small" }, c.pauseDetail) : null,

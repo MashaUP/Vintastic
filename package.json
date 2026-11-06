@@ -1,6 +1,6 @@
 {
   "name": "vintastic",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "Vintastic — estensione browser per Vinted (Manifest V3). Nessuna dipendenza a runtime: npm serve solo per test e pacchetto.",
   "type": "module",
