@@ -713,3 +713,33 @@ async def t_account_switch(env):
     await finished(env, c["id"], 60)
     check(len(env.fake.favourites) == 3 and likes_before < 3, "la campagna riprende dal punto esatto")
     return "etichette ok; altro account → pausa + autenticazione assistita; ritorno rilevato → ripresa dal punto esatto"
+
+
+async def t_sim_then_live(env):
+    """Simulazione completata → «Esegui davvero» → le operazioni tornano in coda e partono davvero (bug 1.0.0)."""
+    await env.open_ui()
+    await env.fast_settings()
+    await env.login_vinted()
+    await scan(env)
+    c, ids = await make_campaign(env, 2, ("like", "comment", "offer"), dry=True)
+    await env.rpc("campaigns.approve", {"id": c["id"]})
+    await env.rpc("campaigns.start", {"id": c["id"]})
+    await finished(env, c["id"], 60)
+    check(not env.fake.api_writes(), "la simulazione non scrive su Vinted")
+    r = await env.rpc_raw("campaigns.start", {"id": c["id"]})
+    check(r["ok"] is False and any("Esegui davvero" in e for e in r["validation"]["errors"]), f"messaggio chiaro dopo la simulazione: {r}")
+    await env.rpc("campaigns.goLive", {"id": c["id"]})
+    data = await env.campaign(c["id"])
+    check(data["campaign"]["dryRun"] is False and data["campaign"]["status"] == "ready", f"campagna pronta in modalità reale: {data['campaign']['status']}")
+    ops = [o for i in data["items"] for o in i["ops"]]
+    check(sum(o["status"] == "waiting" for o in ops) == 4, f"like e offerte di nuovo in coda: {[o['status'] for o in ops]}")
+    check(all(o["status"] == "skipped" for o in ops if o["type"] == "comment"), "i commenti restano suggerimenti")
+    r = await env.rpc_raw("campaigns.start", {"id": c["id"]})
+    check(r["ok"] is False, "serve una nuova approvazione dell'anteprima")
+    await env.rpc("campaigns.approve", {"id": c["id"]})
+    r = await env.rpc("campaigns.start", {"id": c["id"]})
+    check(r["ok"], f"avvio reale: {r}")
+    await finished(env, c["id"], 90)
+    check(env.fake.favourites == {int(i) for i in ids}, f"like inviati davvero: {env.fake.favourites}")
+    check(len(env.fake.offers) == 2, f"offerte inviate davvero: {env.fake.offers}")
+    return "simulazione → «Esegui davvero su Vinted» → 2 like e 2 offerte inviate; commenti restano suggerimenti"

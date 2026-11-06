@@ -201,19 +201,52 @@ export function mutateQueue(campaignId, action, args = {}) {
   });
 }
 
+/**
+ * Le operazioni "completate" in simulazione non sono mai arrivate a Vinted:
+ * passando alla modalità reale tornano in attesa (il ledger non le ha mai registrate).
+ */
+function resetSimulated(c, items) {
+  let n = 0;
+  const out = items.map((i) => {
+    if (i.removed) return i;
+    let touched = false;
+    const ops = i.ops.map((o) => {
+      if (o.status !== "completed" || !o.result?.simulated) return o;
+      n++;
+      touched = true;
+      return { ...o, status: "waiting", result: null, startedAt: null, finishedAt: null, error: null, updatedAt: Date.now() };
+    });
+    return touched ? { ...i, ops, history: [...(i.history || []), { at: Date.now(), action: "pronto per la modalità reale" }].slice(-50) } : i;
+  });
+  if (["completed", "stopped"].includes(c.status) && n) Object.assign(c, transitionCampaign(c, "ready"), { completedAt: null, lastOp: null });
+  return { items: fillOfferAmounts(c, out), count: n };
+}
+
 export function updateCampaign(id, patch) {
   return withLock(async () => {
     const c = await getCampaign(id);
     if (!c) throw new Error("Campagna non trovata");
     const allowed = ["name", "dryRun", "timers", "skipRules", "opsDefaults", "accountId", "origin"];
     if (c.status === "running" && "dryRun" in patch && patch.dryRun !== c.dryRun) throw new Error("Metti in pausa la campagna prima di passare tra simulazione e modalità reale.");
+    const goingLive = c.dryRun && patch.dryRun === false;
     for (const k of allowed) if (k in patch) c[k] = patch[k];
     histC(c, "impostazioni modificate", Object.keys(patch).join(", "));
-    const items = await campaignItems(id);
+    let items = await campaignItems(id);
+    if (goingLive) {
+      const r = resetSimulated(c, items);
+      items = r.items;
+      await saveItems(items);
+      histC(c, "passata in modalità reale", `${r.count} operazioni simulate rimesse in coda`);
+    }
     if ("dryRun" in patch || "accountId" in patch) c.snapshot = null;     // cambia il significato: va riapprovata
     await saveCampaign(c, items);
     return c;
   });
+}
+
+/** Dopo una simulazione: stessa campagna, stesse operazioni, ora davvero su Vinted (da riapprovare). */
+export function goLive(id) {
+  return updateCampaign(id, { dryRun: false });
 }
 
 export function deleteCampaign(id) {

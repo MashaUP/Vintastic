@@ -14,6 +14,7 @@ ORDER = [
     ("scansione, filtri, Top N", S.t_scan_filters),
     ("account, cambio account, autenticazione assistita", S.t_account_switch),
     ("campagna reale like+offerta, No Repeat", S.t_campaign_real),
+    ("simulazione poi modalità reale", S.t_sim_then_live),
     ("coda dinamica, pausa/ripresa, dashboard chiusa", S.t_dynamic_queue),
     ("429 e CAPTCHA", S.t_block_429_captcha),
     ("esito incerto e risoluzione", S.t_uncertain_and_resolve),

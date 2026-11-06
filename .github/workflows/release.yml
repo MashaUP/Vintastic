@@ -51,20 +51,20 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${RELEASE_TAG#v}"
-          gh release upload "$RELEASE_TAG" "dist/vintastic-${VERSION}.zip" "dist/vintastic-${VERSION}.zip.sha256" --clobber
+          gh release upload "$RELEASE_TAG" "dist/Vintastic-${VERSION}.zip" "dist/Vintastic-${VERSION}.zip.sha256" --clobber
           {
             echo "## Pacchetto"
             echo ""
             echo "| File | SHA-256 |"
             echo "|---|---|"
-            echo "| vintastic-${VERSION}.zip | \`$(cut -d' ' -f1 dist/vintastic-${VERSION}.zip.sha256)\` |"
+            echo "| Vintastic-${VERSION}.zip | \`$(cut -d' ' -f1 dist/Vintastic-${VERSION}.zip.sha256)\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Conserva gli artifact
         uses: actions/upload-artifact@v4
         with:
           name: vintastic-${{ env.RELEASE_TAG }}
-          path: dist/vintastic-*.zip*
+          path: dist/Vintastic-*.zip*
           retention-days: 90
 
       - name: Notifica Discord (se il secret DISCORD_WEBHOOK_URL esiste)

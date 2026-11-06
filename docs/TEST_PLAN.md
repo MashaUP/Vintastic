@@ -5,19 +5,19 @@
 ## Come si eseguono
 
 ```bash
-npm test                          # scripts/check.mjs + 47 test unitari (node:test, fake-indexeddb)
-python3 tests/e2e/run_all.py      # 18 scenari in Chrome; rapporto in tests/e2e/artifacts/report.json
+npm test                          # scripts/check.mjs + 48 test unitari (node:test, fake-indexeddb)
+python3 tests/e2e/run_all.py      # 19 scenari in Chrome; rapporto in tests/e2e/artifacts/report.json
 actionlint .github/workflows/*.yml
 npm run build                     # ZIP + SHA-256
 ```
 
-## Test unitari (47/47 ✔)
+## Test unitari (48/48 ✔)
 
 | File | Copre |
 |---|---|
 | `offer.test.mjs` | arrotondamenti (,99 ,00 5 10, tre direzioni), modalità, sconti/incrementi, min/max, fasce, importi casuali (intervallo e riproducibilità), errori |
 | `queue.test.mjs` | aggiunte senza doppioni, ordine/priorità, una sola operazione alla volta, modifiche che rispettano il completato, rimozioni, riordino, retry solo dei falliti certi, progresso, macchine a stati |
-| `ledger-policy.test.mjs` | No Repeat per tipo/account, stati bloccanti, storico, annunci ripubblicati, Policy Validator (sessione, account, kill switch, snapshot, soglie), differenze di snapshot |
+| `ledger-policy.test.mjs` | No Repeat per tipo/account, stati bloccanti, storico, annunci ripubblicati, Policy Validator (sessione, account, kill switch, snapshot, soglie, messaggio dopo una simulazione), differenze di snapshot |
 | `filters-timers.test.mjs` | Top N + periodo, intervalli, campo data scelto, ricerca/stato/prezzo, ordinamenti, timer (transizione, per tipo, tra annunci, minimo), soglie e azzeramento giornaliero |
 | `guard.test.mjs` | **divieto d'acquisto**: 14 percorsi d'acquisto bloccati, lista ammessa, pulsanti in 10 lingue, analisi statica del codice, guard caricato per primo, permessi del manifest |
 | `misc.test.mjs` | redazione, export senza segreti, import (bozze, running → verify), deduplicazione, semver e release GitHub, migrazione impostazioni v1→v3, normalizzazione annunci, suggerimenti, statistiche senza simulazioni |
@@ -42,7 +42,7 @@ npm run build                     # ZIP + SHA-256
 | 11 | Like | ✔ | 3 like sul Vinted finto, stato letto prima e dopo |
 | 12 | Commenti | ✔ | Vinted non li supporta: diventano suggerimenti, nessun invio (verificato) |
 | 13 | Offerte | ✔ | importi -20% con arrotondamento, inviati una volta |
-| 14 | Combinazione operazioni | ✔ | like + offerta sullo stesso annuncio, nell'ordine scelto |
+| 14 | Combinazione operazioni | ✔ | like + offerta sullo stesso annuncio, nell'ordine scelto; simulazione → «Esegui davvero su Vinted» → invio reale (corretto nella 1.0.1) |
 | 15 | Timer | ✔ | unit + e2e (intervallo di 3 s tra annunci rispettato, nessun avanzamento in pausa) |
 | 16 | No Repeat | ✔ | campagna ripetuta: 6 saltate, 0 scritture |
 | 17 | Coda dinamica | ✔ | e2e «coda dinamica» |
@@ -74,7 +74,7 @@ npm run build                     # ZIP + SHA-256
 | 43 | Persistenza dei dati | ✔ | stato e coda sopravvivono alla terminazione del worker e alla riapertura del browser |
 | 44 | Prestazioni con migliaia di annunci | ✔ | 5000 annunci: import 1,4 s, query filtrata ~60 ms, pagina Annunci 0,2 s, nessun blocco misurabile |
 
-**Non eseguito: nessuna prova su Vinted reale.** È il prossimo passo consigliato (vedi [ROADMAP](ROADMAP.md)).
+**Non eseguito: nessuna prova su Vinted reale.** È il prossimo passo consigliato (vedi la prova manuale qui sotto).
 
 ## Problemi trovati dai test e corretti
 
@@ -87,6 +87,7 @@ npm run build                     # ZIP + SHA-256
 | actionlint | YAML del workflow di release non valido | corretto |
 | screenshot | nome della campagna tagliato nel widget; nome utente assente | layout del widget; lettura del nome dalla scheda Vinted |
 | popup | piè di pagina oltre i 600 px | compattato |
+| simulazione (1.0.1) | dopo una simulazione la campagna non si poteva eseguire davvero | operazioni simulate rimesse in coda passando alla modalità reale |
 | account (flaky) | la verifica leggeva l'elenco prima del nome utente | attesa esplicita nel test; ripetuto 3 volte senza errori |
 
 ## Prova manuale consigliata su Vinted reale

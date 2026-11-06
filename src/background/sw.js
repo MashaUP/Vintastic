@@ -372,6 +372,7 @@ async function rpc(method, p, sender) {
     case "campaigns.resume": return engine.resume(p.id);
     case "campaigns.stop": return engine.stop(p.id);
     case "campaigns.reopen": return engine.reopen(p.id);
+    case "campaigns.goLive": return engine.goLive(p.id);
     case "campaigns.confirmOp": { await engine.confirmOp(p.id, p.opId); return engine.resume(p.id); }
     case "campaigns.verifyOp": return engine.verifyOp(p.id, p.itemId, p.opId);
     case "campaigns.pauseAll": return engine.pauseAll("user", "Pausa di tutte le campagne");

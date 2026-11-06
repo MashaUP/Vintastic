@@ -1,8 +1,8 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "date": "2026-11-06",
-  "zip": "vintastic-1.0.0.zip",
+  "zip": "Vintastic-1.0.1.zip",
   "notes": [
-    "Prima versione di Vintastic: scanner degli armadi, campagne di like e offerte con code dinamiche, Smart Offer Engine, dashboard, Health Center e release automatiche"
+    "Una campagna simulata ora si può eseguire davvero su Vinted: le operazioni simulate tornano in coda passando alla modalità reale"
   ]
 }

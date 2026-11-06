@@ -49,18 +49,18 @@
 
 | | |
 |---|---|
-| Versione | **1.0.0** |
+| Versione | **1.0.1** |
 | Browser | Chrome, Edge, Brave (Chromium ≥ 116). Provato in automatico su **Chrome 153**; Edge e Brave non sono stati provati in questo ciclo |
 | Verificato su Vinted reale | **No.** Tutto è stato provato su un Vinted finto (vedi [TEST_PLAN](docs/TEST_PLAN.md)). Gli endpoint di like, offerte e notifiche sono ricostruiti, non osservati: alla prima prova vera usa un solo annuncio |
 | Dipendenze a runtime | Nessuna. Nessun passaggio di build per usarla |
-| Test | 47 unitari + 18 scenari end-to-end in Chrome con l'estensione caricata |
+| Test | 48 unitari + 19 scenari end-to-end in Chrome con l'estensione caricata |
 
 ## Installazione
 
-1. Scarica **`vintastic-x.y.z.zip`** dall'[ultima release](https://github.com/MashaUP/Vintastic/releases/latest) (oppure `vintastic.zip` dalla radice del repository).
+1. Scarica **`Vintastic-x.y.z.zip`** dall'[ultima release](https://github.com/MashaUP/Vintastic/releases/latest) (oppure dalla radice del repository).
 2. Estrailo in una **cartella stabile** (non nella cartella temporanea dei download). La cartella giusta è quella che contiene `manifest.json`.
 3. Apri `chrome://extensions` (o `edge://extensions`, `brave://extensions`) e attiva **Modalità sviluppatore**.
-4. **Carica estensione non pacchettizzata** › scegli la cartella `vintastic`.
+4. **Carica estensione non pacchettizzata** › scegli la cartella `Vintastic`.
 5. Si apre la **guida iniziale**: segui i 9 passi (la prima campagna è una simulazione).
 6. Facoltativo: fissa l'icona di Vintastic nella barra del browser.
 
@@ -126,7 +126,7 @@ Dettagli: [SECURITY.md](SECURITY.md). Vintastic è un progetto indipendente, non
 
 ## Documentazione
 
-[Architettura](docs/ARCHITECTURE.md) · [Funzionalità](docs/FEATURES.md) · [Modello dati](docs/DATA_MODEL.md) · [Analisi tecnica](docs/TECHNICAL_ANALYSIS.md) · [Audit Vinted_Relist](docs/VINTEDRELIST_AUDIT.md) · [Audit Keep_Watching](docs/KEEP_WATCHING_AUDIT.md) · [Piano di test](docs/TEST_PLAN.md) · [Roadmap](docs/ROADMAP.md) · [Release](docs/RELEASE.md) · [Discord](docs/DISCORD_SETUP.md) · [Sicurezza](SECURITY.md) · [Contribuire](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
+[Architettura](docs/ARCHITECTURE.md) · [Test](docs/TEST_PLAN.md) · [Release](docs/RELEASE.md) · [Discord](docs/DISCORD_SETUP.md) · [Sicurezza](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 ## Supporto
 

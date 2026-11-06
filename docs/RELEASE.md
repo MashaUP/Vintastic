@@ -19,7 +19,7 @@ Fine. Il resto lo fa GitHub Actions.
 | Dipendenze | `npm ci` (solo `fake-indexeddb`, per i test) |
 | Controllo del tag | deve essere `vX.Y.Z` e coincidere con la versione del manifest |
 | `npm test` | versioni allineate, domini allineati, file del manifest presenti, sintassi di ogni file, JSON validi, **nessun segreto nel repository**, 47 test unitari tra cui il **divieto d'acquisto** |
-| `npm run build` | `dist/vintastic-x.y.z.zip` con la cartella `vintastic/` (solo i file dell'estensione: niente test, script, workflow, node_modules) e `vintastic-x.y.z.zip.sha256` |
+| `npm run build` | `dist/Vintastic-x.y.z.zip` con la cartella `Vintastic/` (solo i file dell'estensione: niente test, script, workflow, node_modules) e `Vintastic-x.y.z.zip.sha256` |
 | Allegati | ZIP e checksum caricati sulla release (`gh release upload --clobber`) |
 | Riepilogo | tabella con lo SHA-256 nel summary del job |
 | Artifact | conservati 90 giorni |
@@ -44,10 +44,10 @@ Nessun segreto va nel repository: `scripts/check.mjs` blocca la release se trova
 ```bash
 npm ci
 npm test                # controlli + test unitari
-npm run build           # dist/vintastic-x.y.z.zip + .sha256
+npm run build           # dist/Vintastic-x.y.z.zip + .sha256
 python3 tests/e2e/run_all.py   # scenari end-to-end (Chrome + Playwright)
 ```
 
 ## Pacchetto per GitHub (consegna)
 
-`Vintastic_GitHub.zip` contiene la cartella `Vintastic_GitHub/` con tutti i file del repository e `vintastic.zip` (la cartella `vintastic/` pronta per «Carica estensione non pacchettizzata»).
+`Vintastic_GitHub.zip` contiene la cartella `Vintastic_GitHub/` con tutti i file del repository e `Vintastic-x.y.z.zip` (la cartella `Vintastic/` pronta per «Carica estensione non pacchettizzata»).

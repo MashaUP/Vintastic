@@ -126,6 +126,13 @@ async function detail(ctx, id) {
     c.status === "running" ? h("button", { class: "btn", onclick: () => act("campaigns.pause") }, icon("pause", 16), "Pausa") : null,
     c.status === "paused" ? h("button", { class: "btn primary", onclick: () => act("campaigns.resume") }, icon("play", 16), "Riprendi") : null,
     ["running", "paused", "ready"].includes(c.status) ? h("button", { class: "btn danger", onclick: async () => { if (await confirmBox("Interrompere la campagna?", "Le operazioni in attesa vengono annullate. Quelle già eseguite restano.", "Interrompi", true)) act("campaigns.stop"); } }, icon("stop", 16), "Interrompi") : null,
+    c.dryRun && c.status !== "running" && (p.completed || 0) > 0 ? h("button", { class: "btn primary", onclick: async () => {
+      if (!(await confirmBox("Eseguire davvero su Vinted?", "Le operazioni fatte in simulazione tornano in coda e la campagna passa in modalità reale: like e offerte verranno inviati davvero dal tuo account. Prima rivedi e approvi l'anteprima.", "Passa alla modalità reale"))) return;
+      try { await rpc("campaigns.goLive", { id }); } catch (e) { return toast("Non riuscito", e.message, "error"); }
+      toast("Modalità reale", "Controlla l'anteprima, approvala e premi Avvia.", "success");
+      await ctx.refresh();
+      previewDialog(ctx, id);
+    } }, icon("zap", 16), "Esegui davvero su Vinted") : null,
     ["stopped", "completed"].includes(c.status) ? h("button", { class: "btn", onclick: () => act("campaigns.reopen") }, icon("refresh", 16), "Riapri") : null,
     c.status !== "running" ? h("button", { class: "btn ghost", onclick: async () => { if (await confirmBox("Eliminare la campagna?", "Si cancellano la campagna e la sua coda. Il registro delle interazioni (anti-duplicazione) resta.", "Elimina", true)) { await rpc("campaigns.delete", { id }); ctx.navigate("#campaigns"); } } }, icon("trash", 16)) : null);
 
@@ -138,6 +145,8 @@ async function detail(ctx, id) {
       ["auth", "captcha"].includes(c.pauseReason) ? h("button", { class: "btn sm", onclick: () => rpc("session.openLogin", { origin: c.origin }) }, icon("external", 14), "Apri Vinted") : null,
       c.pauseReason === "snapshot" ? h("button", { class: "btn sm primary", onclick: () => previewDialog(ctx, id) }, "Rivedi e approva") : null)) : null;
 
+  const simInfo = c.dryRun && c.status === "completed" ? h("div", { class: "callout info" }, h("b", {}, "Simulazione completata: niente è stato inviato a Vinted. "),
+    "Le operazioni segnate «Simulato» mostrano cosa sarebbe successo. Per farle davvero premi «Esegui davvero su Vinted».") : null;
   const info = h("div", { class: "card" }, h("div", { class: "three" },
     h("dl", { class: "kv" }, h("dt", {}, "Stato"), h("dd", {}, statusPill(c.status)), h("dt", {}, "Modalità"), h("dd", {}, h("span", { class: `pill ${c.dryRun ? "" : "warn"}` }, c.dryRun ? "Simulazione" : "Reale")),
       h("dt", {}, "Creata"), h("dd", {}, fmtDate(c.createdAt)), h("dt", {}, "Anteprima"), h("dd", {}, c.snapshot ? `approvata ${ago(c.snapshot.at)}` : "da approvare")),
@@ -146,7 +155,7 @@ async function detail(ctx, id) {
     h("dl", { class: "kv" }, h("dt", {}, "Progresso"), h("dd", {}, `${p.percent || 0}% · ${p.itemsDone || 0}/${p.items || 0} annunci`), h("dt", {}, "Operazione corrente"), h("dd", {}, c.current ? `${OP_LABEL[c.current.type]} · ${c.current.title?.slice(0, 40)}` : "—"),
       h("dt", {}, "Prossima"), h("dd", { class: "small" }, c.status === "running" ? (c.nextLabel || "—") : "—"), h("dt", {}, "Timer"), h("dd", {}, timer))),
     h("div", { class: "progress", style: { marginTop: "12px" } }, h("i", { style: { width: `${p.percent || 0}%` } })),
-    h("div", { class: "row small muted", style: { marginTop: "6px" } }, `${p.completed || 0} completate`, "·", `${p.failed || 0} fallite`, "·", `${p.verify || 0} da verificare`, "·", `${p.skipped || 0} saltate`, "·", `${p.pending || 0} in attesa`));
+    h("div", { class: "row small muted", style: { marginTop: "6px" } }, `${p.completed || 0} ${c.dryRun ? "simulate" : "completate"}`, "·", `${p.failed || 0} fallite`, "·", `${p.verify || 0} da verificare`, "·", `${p.skipped || 0} saltate`, "·", `${p.pending || 0} in attesa`));
 
   const queue = h("div", { class: "card" },
     h("div", { class: "panel-head" }, h("h2", {}, icon("layers"), "Coda"), h("span", { class: "muted small" }, "Modificabile anche durante l'esecuzione: le operazioni completate restano invariate."), h("span", { class: "grow" }),
@@ -164,7 +173,7 @@ async function detail(ctx, id) {
 
   return h("div", { class: "grid" },
     h("div", { class: "page-head" }, h("a", { href: "#campaigns", class: "btn ghost sm" }, "← Campagne"), h("div", { class: "grow" }, h("h1", {}, c.name)), controls),
-    pauseBox, info, queue, h("div", { class: "two" }, settingsCard, history));
+    simInfo, pauseBox, info, queue, h("div", { class: "two" }, settingsCard, history));
 }
 
 function queueRow(ctx, c, it, idx, act) {
@@ -180,7 +189,7 @@ function queueRow(ctx, c, it, idx, act) {
     h("td", { style: { maxWidth: "300px" } }, h("a", { href: L.url, target: "_blank", rel: "noopener", style: { color: "var(--text)" } }, L.title || it.listingId), h("div", { class: "muted small" }, `${L.sellerLogin || L.sellerId || ""}${L.status && L.status !== "active" ? ` · ${L.status}` : ""}`)),
     h("td", {}, fmtEuro(L.price, L.currency)),
     h("td", {}, h("div", { class: "ops" }, it.ops.map((o) => h("span", { class: `op-chip ${o.status}`, title: [o.error, o.reason].filter(Boolean).join(" · ") || o.status },
-      OP_LABEL[o.type], o.type === "offer" && o.amount ? ` ${fmtEuro(o.amount)}` : "", " ", statusPill(o.status, "op"),
+      OP_LABEL[o.type], o.type === "offer" && o.amount ? ` ${fmtEuro(o.amount)}` : "", " ", statusPill(o.status, "op", o.result?.simulated),
       o.status === "verify" ? h("button", { class: "btn ghost sm", title: "Risolvi", onclick: () => resolveDialog(ctx, c, it, o) }, "risolvi") : null)))),
     h("td", {}, prio),
     h("td", {}, h("div", { class: "row" },

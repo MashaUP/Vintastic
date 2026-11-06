@@ -58,7 +58,12 @@ export function validateCampaign(ctx) {
 
   if (settings.killSwitch) errors.push("Il Kill Switch globale è attivo: spegnilo per avviare.");
   if (!campaign?.accountId) errors.push("Nessun account associato alla campagna.");
-  if (!pendingOps.length) errors.push("Non ci sono operazioni da eseguire.");
+  if (!pendingOps.length) {
+    const simulated = live.some((i) => i.ops.some((o) => o.status === "completed" && o.result?.simulated));
+    errors.push(simulated && campaign?.dryRun
+      ? "La simulazione è già stata eseguita. Per farlo davvero su Vinted usa «Esegui davvero su Vinted»."
+      : "Non ci sono operazioni da eseguire.");
+  }
   if (!campaign?.dryRun) {
     if (!online) errors.push("Connessione assente: le interazioni restano sospese (consultazione in sola lettura).");
     if (!session?.loggedIn) errors.push("Sessione Vinted non attiva: accedi a Vinted in una scheda e riprova.");

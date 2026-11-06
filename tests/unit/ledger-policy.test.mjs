@@ -72,3 +72,14 @@ test("Snapshot: prezzo cambiato o operazione nuova richiedono riapprovazione", (
   const done = items.map((i) => ({ ...i, ops: i.ops.map((o) => ({ ...o, status: "completed" })) }));
   assert.deepEqual(diffSnapshot(snap, done), [], "operazioni eseguite non sono differenze");
 });
+
+test("dopo una simulazione: messaggio che spiega come eseguire davvero", () => {
+  let { items } = Q.addItems([], [L(1)], { types: ["like"] }, "c");
+  items[0].ops[0].status = "completed";
+  items[0].ops[0].result = { simulated: true };
+  const v = validateCampaign({ campaign: camp(items, { dryRun: true }), items, session, settings: DEFAULT_SETTINGS });
+  assert.equal(v.ok, false);
+  assert.match(v.errors.join(), /Esegui davvero su Vinted/);
+  items[0].ops[0].result = { outcome: "done" };
+  assert.match(validateCampaign({ campaign: camp(items), items, session, settings: DEFAULT_SETTINGS }).errors.join(), /Non ci sono operazioni/);
+});

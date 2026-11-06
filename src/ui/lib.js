@@ -143,10 +143,10 @@ export const STATUS = {
   draft: ["Bozza", ""], ready: ["Pronta", "info"], running: ["In esecuzione", "good"], paused: ["In pausa", "warn"],
   stopped: ["Interrotta", "bad"], completed: ["Completata", "info"],
   never: ["Mai elaborato", ""], prepared: ["Preparato", ""], waiting: ["In attesa", ""], completedOp: ["Completato", "good"],
-  failed: ["Fallito", "bad"], verify: ["Da verificare", "warn"], cancelled: ["Annullato", ""], skipped: ["Saltato", ""],
+  simulatedOp: ["Simulato", "info"], failed: ["Fallito", "bad"], verify: ["Da verificare", "warn"], cancelled: ["Annullato", ""], skipped: ["Saltato", ""],
 };
-export function statusPill(status, kind = "campaign") {
-  const key = kind === "op" && status === "completed" ? "completedOp" : kind === "op" && status === "running" ? "running" : status;
+export function statusPill(status, kind = "campaign", simulated = false) {
+  const key = kind === "op" && status === "completed" ? (simulated ? "simulatedOp" : "completedOp") : kind === "op" && status === "running" ? "running" : status;
   const [label, cls] = STATUS[key] || [status, ""];
   return h("span", { class: `pill ${cls}` }, label);
 }

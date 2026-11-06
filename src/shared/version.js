@@ -34,8 +34,8 @@ export function compareVersions(a, b) {
   return 0;
 }
 
-const ZIP_NAME = /^vintastic-\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\.zip$/;
-const SHA_NAME = /^vintastic-\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\.zip\.sha256$/;
+const ZIP_NAME = /^vintastic-\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\.zip$/i;
+const SHA_NAME = /^vintastic-\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\.zip\.sha256$/i;
 const SAFE_URL = /^https:\/\/(github\.com|api\.github\.com|objects\.githubusercontent\.com|release-assets\.githubusercontent\.com)\//;
 
 /** Riduce la risposta di /releases/latest a ciò che serve, validando tutto. */
