@@ -1,0 +1,18 @@
+name: Segnala un problema
+description: Qualcosa non funziona in Vintastic
+labels: [bug]
+body:
+  - type: input
+    id: versione
+    attributes: { label: Versione di Vintastic, placeholder: "es. 1.0.0" }
+    validations: { required: true }
+  - type: input
+    id: browser
+    attributes: { label: Browser e versione, placeholder: "es. Brave 1.71 / Chrome 130 / Edge 130" }
+  - type: textarea
+    id: cosa
+    attributes: { label: Cosa è successo, description: "Cosa ti aspettavi e cosa è successo invece" }
+    validations: { required: true }
+  - type: textarea
+    id: bundle
+    attributes: { label: Support Bundle, description: "Log › Support Bundle: incolla qui il contenuto o allegalo. Non contiene cookie, token, password né webhook." }

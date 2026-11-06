@@ -1,0 +1,87 @@
+name: Release
+
+# Pubblichi una release su GitHub (titolo, descrizione, tag vX.Y.Z) e il resto è automatico:
+# test, pacchetto ZIP, SHA-256, allegati alla release, artifact, notifica Discord facoltativa.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag della release già esistente (es. v1.0.0)"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Dipendenze (solo per i test)
+        run: npm ci --no-audit --no-fund
+
+      - name: Il tag è semver e coincide con la versione del manifest
+        run: |
+          echo "$RELEASE_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::Il tag deve essere vX.Y.Z (ricevuto $RELEASE_TAG)"; exit 1; }
+
+      - name: Controlli e test (versioni, sintassi, divieto di acquisto, segreti)
+        run: npm test
+
+      - name: Pacchetto ZIP + SHA-256
+        run: npm run build
+
+      - name: Allega ZIP e checksum alla release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          gh release upload "$RELEASE_TAG" "dist/vintastic-${VERSION}.zip" "dist/vintastic-${VERSION}.zip.sha256" --clobber
+          {
+            echo "## Pacchetto"
+            echo ""
+            echo "| File | SHA-256 |"
+            echo "|---|---|"
+            echo "| vintastic-${VERSION}.zip | \`$(cut -d' ' -f1 dist/vintastic-${VERSION}.zip.sha256)\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Conserva gli artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vintastic-${{ env.RELEASE_TAG }}
+          path: dist/vintastic-*.zip*
+          retention-days: 90
+
+      - name: Notifica Discord (se il secret DISCORD_WEBHOOK_URL esiste)
+        if: ${{ github.event_name == 'release' }}
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          RELEASE_NAME: ${{ github.event.release.name }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then echo "Secret DISCORD_WEBHOOK_URL non impostato: niente notifica."; exit 0; fi
+          BODY=$(printf '%s' "$RELEASE_BODY" | head -c 1500)
+          jq -n --arg t "Vintastic ${RELEASE_TAG}: ${RELEASE_NAME}" --arg u "$RELEASE_URL" --arg d "$BODY" \
+            '{username:"Vintastic", allowed_mentions:{parse:[]}, embeds:[{title:$t, url:$u, description:$d, color:9399282}]}' > payload.json
+          curl -sS --fail -H "Content-Type: application/json" -d @payload.json "$DISCORD_WEBHOOK_URL" || echo "::warning::Notifica Discord non riuscita"
+
+      - name: Segnala l'errore
+        if: failure()
+        run: |
+          echo "::error::Release ${RELEASE_TAG} non completata. Apri il log del job: lo ZIP non è stato allegato."

@@ -1,0 +1,8 @@
+{
+  "version": "1.0.0",
+  "date": "2026-11-06",
+  "zip": "vintastic-1.0.0.zip",
+  "notes": [
+    "Prima versione di Vintastic: scanner degli armadi, campagne di like e offerte con code dinamiche, Smart Offer Engine, dashboard, Health Center e release automatiche"
+  ]
+}

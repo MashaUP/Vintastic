@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "project": "vintastic",
+  "revision": 1,
+  "links": {
+    "github": { "url": "https://github.com/MashaUP/Vintastic", "enabled": true, "label": "GitHub" },
+    "discord": { "url": "https://discord.gg/EPsbQCuAkx", "enabled": true, "label": "Discord" },
+    "kofi": { "url": "https://ko-fi.com/mashaup", "enabled": true, "label": "Ko-fi" },
+    "documentation": { "url": "https://github.com/MashaUP/Vintastic#readme", "enabled": true, "label": "Guida" },
+    "changelog": { "url": "https://github.com/MashaUP/Vintastic/blob/main/CHANGELOG.md", "enabled": true, "label": "Novità" },
+    "bugReport": { "url": "https://github.com/MashaUP/Vintastic/issues/new?template=segnalazione-bug.yml", "enabled": true, "label": "Segnala un problema" }
+  }
+}

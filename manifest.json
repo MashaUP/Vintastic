@@ -1,0 +1,155 @@
+{
+  "manifest_version": 3,
+  "name": "Vintastic",
+  "version": "1.0.0",
+  "description": "Assistente per Vinted: scanner degli armadi, campagne di like e offerte con il tuo account, code dinamiche, dashboard e diagnostica. Non acquista mai nulla.",
+  "minimum_chrome_version": "116",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "src/ui/popup.html",
+    "default_title": "Vintastic",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "background": {
+    "service_worker": "src/background/sw.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "src/ui/popup.html?mode=panel"
+  },
+  "options_page": "src/ui/dashboard.html#settings",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "alarms",
+    "notifications",
+    "tabs",
+    "cookies",
+    "webRequest",
+    "downloads",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://www.vinted.it/*",
+    "https://www.vinted.fr/*",
+    "https://www.vinted.es/*",
+    "https://www.vinted.de/*",
+    "https://www.vinted.co.uk/*",
+    "https://www.vinted.com/*",
+    "https://www.vinted.be/*",
+    "https://www.vinted.nl/*",
+    "https://www.vinted.at/*",
+    "https://www.vinted.pt/*",
+    "https://www.vinted.pl/*",
+    "https://www.vinted.cz/*",
+    "https://www.vinted.sk/*",
+    "https://www.vinted.lt/*",
+    "https://www.vinted.lu/*",
+    "https://www.vinted.ro/*",
+    "https://www.vinted.hu/*",
+    "https://api.github.com/*",
+    "https://raw.githubusercontent.com/*",
+    "https://github.com/*",
+    "https://objects.githubusercontent.com/*",
+    "https://release-assets.githubusercontent.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://discord.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.vinted.it/*",
+        "https://www.vinted.fr/*",
+        "https://www.vinted.es/*",
+        "https://www.vinted.de/*",
+        "https://www.vinted.co.uk/*",
+        "https://www.vinted.com/*",
+        "https://www.vinted.be/*",
+        "https://www.vinted.nl/*",
+        "https://www.vinted.at/*",
+        "https://www.vinted.pt/*",
+        "https://www.vinted.pl/*",
+        "https://www.vinted.cz/*",
+        "https://www.vinted.sk/*",
+        "https://www.vinted.lt/*",
+        "https://www.vinted.lu/*",
+        "https://www.vinted.ro/*",
+        "https://www.vinted.hu/*"
+      ],
+      "js": [
+        "src/shared/guard-core.js",
+        "src/content/vinted-api.js",
+        "src/content/adapter.js",
+        "src/content/overlay.js",
+        "src/content/content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icons/icon48.png"
+      ],
+      "matches": [
+        "https://www.vinted.it/*",
+        "https://www.vinted.fr/*",
+        "https://www.vinted.es/*",
+        "https://www.vinted.de/*",
+        "https://www.vinted.co.uk/*",
+        "https://www.vinted.com/*",
+        "https://www.vinted.be/*",
+        "https://www.vinted.nl/*",
+        "https://www.vinted.at/*",
+        "https://www.vinted.pt/*",
+        "https://www.vinted.pl/*",
+        "https://www.vinted.cz/*",
+        "https://www.vinted.sk/*",
+        "https://www.vinted.lt/*",
+        "https://www.vinted.lu/*",
+        "https://www.vinted.ro/*",
+        "https://www.vinted.hu/*"
+      ]
+    }
+  ],
+  "commands": {
+    "open-dashboard": {
+      "suggested_key": {
+        "default": "Alt+Shift+V"
+      },
+      "description": "Apri la dashboard di Vintastic"
+    },
+    "toggle-pause": {
+      "suggested_key": {
+        "default": "Alt+Shift+P"
+      },
+      "description": "Pausa / ripresa delle campagne"
+    },
+    "kill-switch": {
+      "suggested_key": {
+        "default": "Alt+Shift+K"
+      },
+      "description": "Kill Switch: ferma tutto"
+    },
+    "toggle-widget": {
+      "description": "Mostra o nascondi il mini-widget"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}
