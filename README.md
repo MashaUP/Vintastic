@@ -49,11 +49,11 @@
 
 | | |
 |---|---|
-| Versione | **1.2.0** |
+| Versione | **1.3.1** |
 | Browser | Chrome, Edge, Brave (Chromium ≥ 116). Provato in automatico su **Chrome 153**; Edge e Brave non sono stati provati in questo ciclo |
 | Verificato su Vinted reale | **No.** Tutto è stato provato su un Vinted finto (vedi [TEST_PLAN](docs/TEST_PLAN.md)). Gli endpoint di like, offerte e notifiche sono ricostruiti, non osservati: alla prima prova vera usa un solo annuncio |
 | Dipendenze a runtime | Nessuna. Nessun passaggio di build per usarla |
-| Test | 50 unitari + 22 scenari end-to-end in Chrome con l'estensione caricata |
+| Test | 53 test unitari di logica + 3 test migrazioni IndexedDB (con `fake-indexeddb`) + 11 test DOM isolati; E2E con estensione caricata da eseguire in Chromium con estensioni abilitate |
 
 ## Installazione
 

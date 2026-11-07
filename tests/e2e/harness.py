@@ -1,10 +1,10 @@
 """Avvio di Chrome con Vintastic caricata e il Vinted finto."""
-import asyncio, os, tempfile, json, time
+import asyncio, os, tempfile, json, time, shutil
 from playwright.async_api import async_playwright
 from fake_vinted import FakeVinted, ORIGIN, USER_ID
 
 EXT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-CHROME = os.environ.get("CHROME_PATH", "/usr/bin/google-chrome")
+CHROME = os.environ.get("CHROME_PATH") or shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser") or "/usr/bin/google-chrome"
 os.environ.setdefault("PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS", "1")
 
 

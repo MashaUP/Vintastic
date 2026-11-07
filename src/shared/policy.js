@@ -21,19 +21,36 @@ export function snapshotEntries(items) {
   })).filter((e) => e.ops.length);
 }
 
-export function makeSnapshot(items, at = Date.now()) {
+function snapshotPayload(items, settings = {}) {
   const entries = snapshotEntries(items);
-  return { at, hash: stableStringify(entries), count: entries.length };
+  const hasPendingMessage = entries.some((entry) => entry.ops.some((op) => op[0] === "message"));
+  const messages = hasPendingMessage ? {
+    mode: settings.messages?.mode === "manual" ? "manual" : "auto",
+    text: String(settings.messages?.text || "").trim(),
+  } : null;
+  return { entries, messages };
+}
+
+export function makeSnapshot(items, at = Date.now(), settings = {}) {
+  const payload = snapshotPayload(items, settings);
+  return { at, hash: stableStringify(payload), count: payload.entries.length };
 }
 
 /** Differenze tra lo snapshot approvato e la coda attuale (solo operazioni ancora da fare). */
-export function diffSnapshot(snapshot, items) {
+export function diffSnapshot(snapshot, items, settings = {}) {
   if (!snapshot) return ["Nessuna anteprima approvata."];
-  let approved;
-  try { approved = JSON.parse(snapshot.hash); } catch { return ["Anteprima illeggibile: va riapprovata."]; }
-  const now = snapshotEntries(items);
+  let parsed;
+  try { parsed = JSON.parse(snapshot.hash); } catch { return ["Anteprima illeggibile: va riapprovata."]; }
+  // Compatibilità con gli snapshot precedenti alla versione con messaggi.
+  const approved = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.entries) ? parsed.entries : null);
+  if (!approved) return ["Anteprima illeggibile: va riapprovata."];
+  const current = snapshotPayload(items, settings);
+  const now = current.entries;
   const byItem = new Map(approved.map((e) => [e.itemId, e]));
   const diffs = [];
+  if (current.messages && stableStringify(parsed.messages || null) !== stableStringify(current.messages)) {
+    diffs.push("Impostazioni del messaggio cambiate (modalità o testo): riapri e approva l’anteprima.");
+  }
   for (const e of now) {
     const a = byItem.get(e.itemId);
     if (!a) { diffs.push(`Nuovo elemento non approvato: annuncio ${e.listingId}`); continue; }
@@ -80,7 +97,13 @@ export function validateCampaign(ctx) {
     if (breakers[t]?.state === "open") errors.push(`Il modulo ${t} è sospeso dal circuit breaker: ${breakers[t].reason || "errori ripetuti"}.`);
   }
   if (types.has("comment")) warnings.push("Vinted non ha commenti pubblici sugli annunci: i commenti diventano suggerimenti da copiare, non vengono inviati.");
-  if (types.has("message")) warnings.push("I messaggi privati contattano i venditori. Verifica il testo e usa la modalità manuale se vuoi premere personalmente Invia.");
+  if (types.has("message")) {
+    const messageText = String(settings.messages?.text || "").trim();
+    if (!messageText) errors.push("Testo del messaggio privato vuoto: configurane uno in Impostazioni → Messaggi.");
+    else if (messageText.length > 1000) errors.push("Testo del messaggio privato troppo lungo: massimo 1000 caratteri.");
+    if (!["auto", "manual"].includes(settings.messages?.mode)) errors.push("Modalità messaggio non valida: scegli Automatica o Conferma manuale.");
+    warnings.push("I messaggi privati contattano direttamente i venditori. Controlla testo e destinatari prima di avviare la campagna.");
+  }
 
   let dupes = 0;
   let verify = 0;
@@ -105,7 +128,7 @@ export function validateCampaign(ctx) {
     }
   }
 
-  const diffs = diffSnapshot(campaign?.snapshot, items);
+  const diffs = diffSnapshot(campaign?.snapshot, items, settings);
   if (diffs.length) errors.push(`Serve una nuova approvazione dell'anteprima (${diffs.length} differenze).`);
 
   infos.push(`${live.length} annunci, ${pendingOps.length} operazioni da eseguire.`);

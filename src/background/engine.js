@@ -129,7 +129,7 @@ export function addToCampaign(campaignId, listings, spec = {}, where = "end") {
     await saveItems(next.filter((i) => r.changed.includes(i.id)));
     histC(c, "aggiunti annunci", `${r.changed.length} aggiunti/aggiornati, ${r.rejected.length} scartati`);
     if (c.status === "completed") Object.assign(c, transitionCampaign(c, "ready"));
-    if (c.snapshot && c.status !== "draft") c.snapshot = makeSnapshot(next);   // modifica dell'utente = nuova approvazione
+    if (c.snapshot && c.status !== "draft") c.snapshot = makeSnapshot(next, Date.now(), await getSettings()); // modifica esplicita della coda = nuova fotografia approvata
     await saveCampaign(c, next);
     await activity("queue", `${r.changed.length} annunci aggiunti a «${c.name}»`, { campaignId });
     if (c.status === "running") kick();
@@ -193,7 +193,7 @@ export function mutateQueue(campaignId, action, args = {}) {
     items = fillOfferAmounts(c, items);
     await saveItems(items);
     histC(c, action, detail);
-    if (c.snapshot && ["running", "paused", "ready"].includes(c.status)) c.snapshot = makeSnapshot(items);
+    if (c.snapshot && ["running", "paused", "ready"].includes(c.status)) c.snapshot = makeSnapshot(items, Date.now(), await getSettings());
     if (c.status === "completed" && Q.nextOp(items)) Object.assign(c, transitionCampaign(c, "ready"));
     await saveCampaign(c, items);
     if (c.status === "running") kick();
@@ -331,8 +331,9 @@ export async function preview(id) {
   const c = await getCampaign(id);
   let items = fillOfferAmounts(c, await campaignItems(id));
   await saveItems(items);
-  const v = validateCampaign(await policyContext(c, items));
-  return { campaign: c, items: Q.executionOrder(items), validation: v, snapshotDiff: diffSnapshot(c.snapshot, items) };
+  const context = await policyContext(c, items);
+  const v = validateCampaign(context);
+  return { campaign: c, items: Q.executionOrder(items), validation: v, snapshotDiff: diffSnapshot(c.snapshot, items, context.settings) };
 }
 
 /** L'utente approva l'anteprima: fotografia delle operazioni e degli importi. */
@@ -341,7 +342,7 @@ export function approve(id) {
     const c = await getCampaign(id);
     const items = fillOfferAmounts(c, await campaignItems(id));
     await saveItems(items);
-    c.snapshot = makeSnapshot(items);
+    c.snapshot = makeSnapshot(items, Date.now(), await getSettings());
     if (c.status === "draft") Object.assign(c, transitionCampaign(c, "ready"));
     if (c.status === "stopped") Object.assign(c, transitionCampaign(c, "ready"));
     if (c.pauseReason === "snapshot") { c.pauseReason = null; c.pauseDetail = null; }

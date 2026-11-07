@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.3.1] - 2026-11-07
+
+### Corretto
+- Un tentativo di invio senza conferma del nuovo messaggio resta «da verificare», anche se il compositore si svuota o la chat mostra un CAPTCHA: non viene ritentato automaticamente.
+- La verifica confronta i nuovi messaggi con quelli già presenti, evitando di scambiare un bubble precedente con un invio appena effettuato.
+- Il ritorno all'annuncio deve essere confermato; in caso contrario l'operazione resta «da verificare».
+- L'approvazione della campagna include testo e modalità dei messaggi: modificarli rende necessaria una nuova anteprima e approvazione.
+
+### Test
+- Aggiunti test DOM isolati per le modalità automatica e manuale, invio incerto, duplicati, pulsanti disabilitati, CAPTCHA e ritorno all'annuncio.
+
 ## [1.3.0] - 2026-11-07
 
 ### Aggiunto

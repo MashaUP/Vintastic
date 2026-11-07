@@ -1,6 +1,6 @@
 {
   "name": "vintastic",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "private": true,
   "description": "Vintastic — estensione browser per Vinted (Manifest V3). Nessuna dipendenza a runtime: npm serve solo per test e pacchetto.",
   "type": "module",
@@ -8,7 +8,8 @@
     "check": "node scripts/check.mjs",
     "test": "node scripts/check.mjs && node --test tests/unit/*.test.mjs",
     "test:e2e": "python3 tests/e2e/run_all.py",
-    "build": "node scripts/build.mjs"
+    "build": "node scripts/build.mjs",
+    "test:message-dom": "python3 tests/e2e/message_dom_smoke.py"
   },
   "devDependencies": {
     "fake-indexeddb": "^6.0.0"

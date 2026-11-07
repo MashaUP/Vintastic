@@ -244,19 +244,23 @@
     return button && !button.disabled && button.getAttribute('aria-disabled') !== 'true' ? button : null;
   }
 
-  function outgoingMessageVisible(text) {
+  function matchingMessageNodes(text) {
     const candidates = document.querySelectorAll('[data-testid*="message" i], [class*="message" i], [class*="Message"]');
-    return [...candidates].some((el) => {
+    return [...candidates].filter((el) => {
       if (el.matches('textarea, input')) return false;
       const content = (el.innerText || el.textContent || '').trim();
       return content === text || content.endsWith(text);
     });
   }
 
-  async function waitForSent(text, textarea, timeoutMs = 45_000) {
+  async function waitForSent(text, textarea, previousNodes, timeoutMs = 45_000) {
     return waitForDom(() => {
       const current = document.querySelector(CHAT_INPUT) || textarea;
-      return current.isConnected && current.value.trim() === '' && outgoingMessageVisible(text);
+      const composerCleared = !current?.isConnected || current.value.trim() === '';
+      // Un messaggio con lo stesso testo già presente nella chat non basta:
+      // deve apparire un nuovo nodo dopo il tentativo di invio.
+      const newBubble = matchingMessageNodes(text).some((el) => !previousNodes.has(el));
+      return composerCleared && newBubble;
     }, timeoutMs);
   }
 
@@ -292,17 +296,25 @@
     const enabledButton = await waitForDom(() => sendButton(textarea), 8_000);
     if (!enabledButton) return { outcome: 'failed', sent: false, retryable: true, message: 'Il pulsante di invio non si è abilitato dopo aver compilato il messaggio' };
 
-    if (mode === 'auto') safeClick(enabledButton);
-    // In modalità manuale l'utente preme Invia su Vinted. In entrambe le modalità
-    // non si prosegue finché il messaggio non compare nella conversazione.
-    const sent = await waitForSent(text, textarea, mode === 'manual' ? 4 * 60_000 : 45_000);
+    const previousNodes = new Set(matchingMessageNodes(text));
+    let sendAttempted = false;
+    // In modalità manuale riconosciamo sia il click sul pulsante sia Invio da tastiera.
+    enabledButton.addEventListener('click', () => { sendAttempted = true; }, { capture: true });
+    textarea.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && !event.shiftKey) sendAttempted = true;
+    }, { capture: true });
+    if (mode === 'auto') {
+      sendAttempted = true; // dal click in poi l'esito può essere già arrivato a Vinted
+      safeClick(enabledButton);
+    }
+    // In entrambe le modalità non si prosegue finché non compare un nuovo bubble.
+    const sent = await waitForSent(text, textarea, previousNodes, mode === 'manual' ? 4 * 60_000 : 45_000);
     if (!sent) {
-      if (challengePresent()) return { outcome: 'captcha', sent: mode === 'auto', message: 'Verifica Vinted comparsa durante l’invio del messaggio' };
-      const currentTextarea = document.querySelector(CHAT_INPUT) || textarea;
-      if (currentTextarea.isConnected && currentTextarea.value.trim() === '') return { outcome: 'uncertain', sent: true, message: 'Il campo si è svuotato ma il messaggio non è stato trovato nella cronologia: verifica prima di riprovare' };
-      return mode === 'manual'
-        ? { outcome: 'failed', sent: false, retryable: false, message: 'Invio manuale non rilevato entro 4 minuti: il testo è rimasto nel campo e non è stato inviato' }
-        : { outcome: 'failed', sent: false, retryable: true, message: 'Il pulsante è stato premuto ma il campo non si è svuotato: invio non confermato' };
+      if (challengePresent()) return { outcome: sendAttempted ? 'uncertain' : 'captcha', sent: sendAttempted, message: 'Verifica Vinted comparsa durante l’invio del messaggio' };
+      if (sendAttempted) {
+        return { outcome: 'uncertain', sent: true, message: 'È stato tentato l’invio ma non è comparso un nuovo messaggio nella cronologia: verifica prima di riprovare' };
+      }
+      return { outcome: 'failed', sent: false, retryable: false, message: 'Invio manuale non rilevato entro 4 minuti: il testo è rimasto nel campo e non è stato inviato' };
     }
 
     const returned = await returnToListing(listingId);
