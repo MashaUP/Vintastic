@@ -5,7 +5,7 @@ import { MODULES } from "../../shared/constants.js";
 import { EXPORT_PARTS } from "../../shared/schema.js";
 import { startOnboarding } from "./onboarding.js";
 
-const TABS = { general: "Generali", timers: "Timer", limits: "Limiti", notifications: "Notifiche", overlay: "FAB e widget", ai: "AI", discord: "Discord", backup: "Backup", data: "Dati", advanced: "Avanzate" };
+const TABS = { general: "Generali", messages: "Messaggi", timers: "Timer", limits: "Limiti", notifications: "Notifiche", overlay: "FAB e widget", ai: "AI", discord: "Discord", backup: "Backup", data: "Dati", advanced: "Avanzate" };
 
 export async function render(ctx) {
   const tab = TABS[ctx.route.query.tab] ? ctx.route.query.tab : "general";
@@ -26,6 +26,17 @@ export async function render(ctx) {
       h("div", { class: "row" }, h("button", { class: "btn", onclick: () => startOnboarding(ctx, true) }, icon("play", 14), "Riavvia la guida iniziale"),
         check(s.onboardingDone, (v) => save({ onboardingDone: v }), "Non mostrare la guida all'avvio"))),
 
+    messages: () => {
+      const text = h("textarea", { class: "input", rows: 4, maxlength: 1000, value: s.messages?.text || "", placeholder: "Scrivi il messaggio da inviare ai venditori" });
+      return h("div", { class: "grid" },
+        h("p", { class: "small muted" }, "I messaggi vengono inviati solo agli annunci che aggiungi esplicitamente a una campagna e per cui selezioni «Messaggio privato». Vintastic non invia messaggi a caso né aggira CAPTCHA o verifiche."),
+        h("label", { class: "field" }, "Modalità di invio", sel({ auto: "A — Automatica (predefinita)", manual: "B — Conferma manuale su Vinted" }, s.messages?.mode || "auto", (v) => save({ messages: { mode: v } })),
+        h("span", { class: "small muted" }, "Automatica: invia e verifica il messaggio. Manuale: compila la chat e attende che tu prema Invia su Vinted.")),
+        h("label", { class: "field" }, "Testo del messaggio", text),
+        h("div", { class: "row" }, h("span", { class: "small muted grow" }, `${(s.messages?.text || "").length}/1000 caratteri`), h("button", { class: "btn primary", onclick: () => save({ messages: { text: text.value.trim() } }, "Messaggio salvato") }, "Salva messaggio")),
+        h("div", { class: "callout warn small" }, h("b", {}, "Controllo invii. "), "La modalità manuale attende fino a 4 minuti. Se l'invio non può essere verificato, l'operazione non viene ripetuta automaticamente."));
+    },
+
     timers: () => h("div", { class: "grid" },
       h("p", { class: "small muted" }, "Gli intervalli regolano il ritmo per evitare richieste ravvicinate. Non servono a nascondere nulla: se Vinted segnala un limite (403, 429, CAPTCHA) tutto si ferma comunque."),
       h("label", { class: "field" }, "Tra operazioni dello stesso annuncio", range(s.timers.betweenOps, (r) => save({ timers: { betweenOps: r } }))),
@@ -38,6 +49,7 @@ export async function render(ctx) {
       h("div", { class: "callout warn small" }, h("b", {}, "Soglie scelte da te. "), "Non sono limiti ufficiali di Vinted e non garantiscono nulla: servono a te per tenere il ritmo sotto controllo. Si azzerano a mezzanotte."),
       h("label", { class: "field" }, "Like al giorno", num(s.limits.perDay.like, (v) => save({ limits: { perDay: { like: v } } }), { min: 0 })),
       h("label", { class: "field" }, "Offerte al giorno", num(s.limits.perDay.offer, (v) => save({ limits: { perDay: { offer: v } } }), { min: 0 })),
+      h("label", { class: "field" }, "Messaggi privati al giorno", num(s.limits.perDay.message ?? 10, (v) => save({ limits: { perDay: { message: v } } }), { min: 0 })),
       h("label", { class: "field" }, "Commenti (suggerimenti) al giorno", num(s.limits.perDay.comment, (v) => save({ limits: { perDay: { comment: v } } }), { min: 0 })),
       h("label", { class: "field" }, "Totale per account al giorno", num(s.limits.perAccountDay, (v) => save({ limits: { perAccountDay: v } }), { min: 0 })),
       h("label", { class: "field" }, "Totale complessivo al giorno", num(s.limits.globalDay, (v) => save({ limits: { globalDay: v } }), { min: 0 })),

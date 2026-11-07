@@ -17,7 +17,7 @@ let range = "7d";
 let activityList = null;
 let timerNodes = [];
 
-const ACT_ICON = { like: "heart", offer: "tag", comment: "message", scan: "scan", listing: "list", campaign: "zap", queue: "layers", notif: "bell", system: "settings" };
+const ACT_ICON = { like: "heart", offer: "tag", message: "send", comment: "message", scan: "scan", listing: "list", campaign: "zap", queue: "layers", notif: "bell", system: "settings" };
 
 function feedItem(a) {
   return h("li", {}, h("span", { class: `fi ${a.kind}` }, icon(ACT_ICON[a.kind] || "pulse", 14)), h("span", { class: "small" }, a.text, a.simulated ? h("span", { class: "pill", style: { marginLeft: "6px" } }, "sim.") : null), h("span", { class: "muted small" }, ago(a.at)));

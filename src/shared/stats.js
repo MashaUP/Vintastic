@@ -43,6 +43,7 @@ export function computeStats(data, range = "7d", now = Date.now(), from = null, 
     likes: count("like"),
     comments: ops.filter((o) => o.type === "comment" && (o.status === "completed" || o.status === "suggested")).length,
     offers: count("offer"),
+    messages: count("message"),
     failed: ops.filter((o) => o.status === "failed").length,
     verify: ops.filter((o) => o.status === "verify").length,
     skipped: ops.filter((o) => o.status === "skipped").length,
@@ -57,7 +58,7 @@ export function computeStats(data, range = "7d", now = Date.now(), from = null, 
   const days = [];
   const start = Math.max(b.from || (now - 30 * 86400e3), now - 60 * 86400e3);
   for (let t = new Date(start).setHours(12, 0, 0, 0); t <= now + 1; t += 86400e3) days.push(dayKey(t));
-  const series = Object.fromEntries(["like", "comment", "offer", "scan", "failed"].map((k) => [k, Object.fromEntries(days.map((d) => [d, 0]))]));
+  const series = Object.fromEntries(["like", "comment", "offer", "message", "scan", "failed"].map((k) => [k, Object.fromEntries(days.map((d) => [d, 0]))]));
   for (const o of ops) {
     const d = dayKey(o.at);
     if (o.status === "completed" && series[o.type]?.[d] != null) series[o.type][d]++;

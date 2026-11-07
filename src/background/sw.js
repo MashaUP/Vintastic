@@ -328,7 +328,7 @@ async function rpc(method, p, sender) {
       else if (dir === "asc") list = list.slice().reverse();
       const page = list.slice(offset, offset + limit).map((l) => ({
         ...l,
-        interactions: sum[l.id] ? { like: sum[l.id].like, comment: sum[l.id].comment, offer: sum[l.id].offer, accounts: [...sum[l.id].accounts] } : null,
+        interactions: sum[l.id] ? { like: sum[l.id].like, comment: sum[l.id].comment, offer: sum[l.id].offer, message: sum[l.id].message, accounts: [...sum[l.id].accounts] } : null,
         campaigns: [...new Set(items.filter((i) => i.listingId === l.id && !i.removed).map((i) => camps.get(i.campaignId)).filter(Boolean))],
       }));
       return { items: page, total: r.items.length, all: r.total, noDate: r.noDate, ids: p.withIds ? list.map((l) => l.id) : undefined };

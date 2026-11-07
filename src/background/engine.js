@@ -649,9 +649,9 @@ async function runOp(c, item, op, settings) {
   try {
     const url = item.listing.url || `${c.origin}/items/${item.listingId}`;
     tabId = await tabs.workerTab(c.origin);
-    const wantPath = settings.openListingBeforeOp ? `/items/${item.listingId}` : null;
+    const wantPath = settings.openListingBeforeOp || op.type === "message" ? `/items/${item.listingId}` : null;
     const ready = tabs.waitReady(tabId, 45_000, (pg) => !wantPath || String(pg?.path || "").startsWith(wantPath));
-    if (settings.openListingBeforeOp) await tabs.navigate(tabId, url);
+    if (wantPath) await tabs.navigate(tabId, url);
     else await chrome.tabs.reload(tabId);
     const page = await ready;
     if (page?.challenge) return notSent(c, item, op, "captcha", "Vinted chiede una verifica (CAPTCHA o conferma)", tabId);
@@ -666,11 +666,11 @@ async function runOp(c, item, op, settings) {
   try {
     res = await tabs.sendToTab(tabId, {
       type: "vt:exec",
-      op: { type: op.type, amount: op.amount ?? null },
+      op: { type: op.type, amount: op.amount ?? null, mode: settings.messages?.mode || "auto", text: settings.messages?.text || "" },
       listing: { id: item.listingId, sellerId: item.listing.sellerId, price: item.listing.price, currency: item.listing.currency, url: item.listing.url },
       expectedUserId: c.accountId?.split("@")[0],
       snapshotPrice: item.listing.price,
-    });
+    }, op.type === "message" && settings.messages?.mode === "manual" ? 4 * 60_000 + 30_000 : 90_000);
   } catch (e) {
     if (e.notSent) return notSent(c, item, op, "error", e.message);
     res = { outcome: "uncertain", sent: true, message: e.message };
@@ -775,6 +775,7 @@ async function applyOutcome(c, item, op, res, tabId) {
     }
     case "blocked":
     case "captcha":
+      if (res.sent) return markVerify(c, item, op, res.message || "Esito incerto dopo una verifica Vinted");
       return notSent(c, item, op, res.outcome === "captcha" ? "captcha" : "blocked", res.message || "Vinted ha rifiutato la richiesta", tabId);
     case "auth":
       return notSent(c, item, op, "auth", res.message || "Sessione non valida", tabId);

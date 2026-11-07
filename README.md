@@ -3,7 +3,7 @@
 <h1 align="center">Vintastic</h1>
 
 <p align="center">
-  Assistente per Vinted, per Chrome, Edge e Brave: scanner degli armadi, campagne di like e offerte con il <b>tuo</b> account,<br>
+  Assistente per Vinted, per Chrome, Edge e Brave: scanner degli armadi, campagne di like, offerte e messaggi privati con il <b>tuo</b> account,<br>
   code modificabili mentre girano, Smart Offer Engine, dashboard, diagnostica. <b>Non acquista mai nulla.</b>
 </p>
 
@@ -137,3 +137,8 @@ Dettagli: [SECURITY.md](SECURITY.md). Vintastic è un progetto indipendente, non
 ## Credits
 
 Progetto di **MashaUP**. Riusa idee e codice dei suoi progetti [Vinted_Relist](https://github.com/MashaUP/Vinted_Relist) (lettura dei token di sessione, gestione 403/429, esiti incerti, version checker, link centralizzati) e Keep_Watching (Health Center, cronologia eventi, statistiche locali). Nessuna libreria di terze parti a runtime. Licenza [MIT](LICENSE).
+
+
+## Messaggi privati nelle campagne (v1.3.0)
+
+Puoi aggiungere l'operazione **Messaggio privato** alle campagne. Vintastic apre l'annuncio, seleziona **Chiedi info**, compila la chat e verifica la presenza del messaggio inviato. In **Impostazioni → Messaggi** puoi scegliere la modalità automatica (predefinita) oppure la conferma manuale, e configurare il testo. La soglia iniziale è di 10 messaggi al giorno e si può modificare in Impostazioni → Limiti. Se Vinted richiede CAPTCHA/verifiche, la chat non si apre o l'esito non è verificabile, Vintastic non ripete automaticamente l'invio.

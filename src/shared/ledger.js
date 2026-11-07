@@ -64,7 +64,7 @@ export function summarize(entries) {
   const out = {};
   for (const e of entries) {
     if (e.simulated) continue;
-    const s = (out[e.listingId] ||= { like: null, comment: null, offer: null, accounts: new Set() });
+    const s = (out[e.listingId] ||= { like: null, comment: null, offer: null, message: null, accounts: new Set() });
     s[e.type] = e.status;
     s.accounts.add(e.accountId);
   }

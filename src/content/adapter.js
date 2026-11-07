@@ -1,5 +1,5 @@
 /**
- * Adapter Vinted: stato della pagina, scansione, like, offerta, sessione,
+ * Adapter Vinted: stato della pagina, scansione, like, offerta, messaggi privati, sessione,
  * notifiche. Ogni funzione restituisce un esito classificato:
  *   done | already | failed | blocked | captcha | auth | notFound | unavailable |
  *   priceChanged | changed | unsupported | uncertain
@@ -12,8 +12,8 @@
  *   POST /user_favourites/toggle like
  *   POST /conversations + POST /transactions/:id/offer_requests   offerta
  *   GET  /notifications, PUT /notifications/:id                   notifiche
- * Forme delle risposte NON verificate su Vinted reale per like, offerte e
- * notifiche: ogni lettura è difensiva e una forma inattesa dà "changed".
+ * Il messaggio privato interagisce con la UI visibile e verifica il bubble prima
+ * di dichiarare il successo. Nessun endpoint di messaggistica non documentato.
  */
 (() => {
   "use strict";
@@ -189,6 +189,125 @@
     if (r.kind === "network" || r.kind === "server") return { outcome: "uncertain", sent: true, network: r.kind === "network", message: r.message };
     if (r.status === 400 || r.status === 422) return { outcome: "failed", sent: false, retryable: false, message: `Vinted ha rifiutato l'importo: ${r.message}` };
     return asOutcome(r);
+  };
+
+  // ---------------------------------------------------------------- messaggio privato (solo interazione DOM visibile)
+
+  const MESSAGE_TIMEOUT_MS = 45_000;
+  const CHAT_INPUT = '#composerInput[data-testid="composer--input"], textarea#composerInput';
+  const ASK_INFO_LABEL = 'Chiedi info';
+  const MESSAGE_MAX_LENGTH = 1000;
+
+  function waitForDom(predicate, timeoutMs = MESSAGE_TIMEOUT_MS) {
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (value) => {
+        if (done) return;
+        done = true;
+        observer.disconnect();
+        clearTimeout(timer);
+        resolve(value || null);
+      };
+      const check = () => {
+        try { const value = predicate(); if (value) finish(value); } catch { /* DOM transitorio */ }
+      };
+      const observer = new MutationObserver(check);
+      observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
+      const timer = setTimeout(() => finish(null), timeoutMs);
+      check();
+    });
+  }
+
+  function safeClick(element) {
+    if (!element || typeof element.dispatchEvent !== "function") return false;
+    return element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+  }
+
+  function askInfoButton() {
+    const labels = [...document.querySelectorAll('span.web_ui__Button__label')];
+    const label = labels.find((el) => (el.textContent || '').trim() === ASK_INFO_LABEL);
+    const button = label?.closest('button');
+    return button && !button.disabled && button.getAttribute('aria-disabled') !== 'true' ? button : null;
+  }
+
+  function setTextareaValue(textarea, value) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+    if (setter) setter.call(textarea, value);
+    else textarea.value = value;
+    textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+    textarea.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function sendButton(textarea) {
+    const suffix = textarea.closest('.web_ui__InputBar__input')?.parentElement?.querySelector('.web_ui__InputBar__suffix');
+    const button = suffix?.querySelector('button') || [...document.querySelectorAll('button')].find((b) => b.querySelector('[data-testid="arrow-right"]'));
+    return button && !button.disabled && button.getAttribute('aria-disabled') !== 'true' ? button : null;
+  }
+
+  function outgoingMessageVisible(text) {
+    const candidates = document.querySelectorAll('[data-testid*="message" i], [class*="message" i], [class*="Message"]');
+    return [...candidates].some((el) => {
+      if (el.matches('textarea, input')) return false;
+      const content = (el.innerText || el.textContent || '').trim();
+      return content === text || content.endsWith(text);
+    });
+  }
+
+  async function waitForSent(text, textarea, timeoutMs = 45_000) {
+    return waitForDom(() => {
+      const current = document.querySelector(CHAT_INPUT) || textarea;
+      return current.isConnected && current.value.trim() === '' && outgoingMessageVisible(text);
+    }, timeoutMs);
+  }
+
+  async function returnToListing(listingId) {
+    const expected = new RegExp(`^/items/${String(listingId).replace(/[^0-9]/g, '')}(?:$|[-/])`);
+    if (expected.test(location.pathname)) return true;
+    history.back();
+    return Boolean(await waitForDom(() => expected.test(location.pathname), 8_000));
+  }
+
+  VT.message = async ({ listing, op }) => {
+    const listingId = String(listing?.id || '');
+    const text = String(op?.text || '').trim();
+    const mode = op?.mode === 'manual' ? 'manual' : 'auto';
+    if (!/^\d+$/.test(listingId)) return { outcome: 'failed', sent: false, retryable: false, message: 'ID annuncio non valido' };
+    if (!text) return { outcome: 'failed', sent: false, retryable: false, message: 'Testo del messaggio vuoto: configurarlo nelle Impostazioni' };
+    if (text.length > MESSAGE_MAX_LENGTH) return { outcome: 'failed', sent: false, retryable: false, message: `Messaggio troppo lungo (massimo ${MESSAGE_MAX_LENGTH} caratteri)` };
+    if (!onItemPage(listingId)) return { outcome: 'failed', sent: false, retryable: true, message: 'La scheda di lavoro non è sull’annuncio previsto' };
+    if (challengePresent()) return { outcome: 'captcha', sent: false, message: 'Vinted chiede una verifica prima di aprire la chat' };
+
+    const ask = askInfoButton();
+    if (!ask) return { outcome: 'changed', sent: false, message: 'Pulsante «Chiedi info» non trovato o non cliccabile: struttura Vinted cambiata' };
+    safeClick(ask);
+
+    const textarea = await waitForDom(() => document.querySelector(CHAT_INPUT), 30_000);
+    if (!textarea) {
+      if (challengePresent()) return { outcome: 'captcha', sent: false, message: 'Vinted richiede una verifica per aprire la conversazione' };
+      return { outcome: 'failed', sent: false, retryable: true, message: 'La chat non si è aperta: campo #composerInput non trovato' };
+    }
+    if (challengePresent()) return { outcome: 'captcha', sent: false, message: 'Vinted chiede una verifica nella chat' };
+
+    setTextareaValue(textarea, text);
+    const enabledButton = await waitForDom(() => sendButton(textarea), 8_000);
+    if (!enabledButton) return { outcome: 'failed', sent: false, retryable: true, message: 'Il pulsante di invio non si è abilitato dopo aver compilato il messaggio' };
+
+    if (mode === 'auto') safeClick(enabledButton);
+    // In modalità manuale l'utente preme Invia su Vinted. In entrambe le modalità
+    // non si prosegue finché il messaggio non compare nella conversazione.
+    const sent = await waitForSent(text, textarea, mode === 'manual' ? 4 * 60_000 : 45_000);
+    if (!sent) {
+      if (challengePresent()) return { outcome: 'captcha', sent: mode === 'auto', message: 'Verifica Vinted comparsa durante l’invio del messaggio' };
+      const currentTextarea = document.querySelector(CHAT_INPUT) || textarea;
+      if (currentTextarea.isConnected && currentTextarea.value.trim() === '') return { outcome: 'uncertain', sent: true, message: 'Il campo si è svuotato ma il messaggio non è stato trovato nella cronologia: verifica prima di riprovare' };
+      return mode === 'manual'
+        ? { outcome: 'failed', sent: false, retryable: false, message: 'Invio manuale non rilevato entro 4 minuti: il testo è rimasto nel campo e non è stato inviato' }
+        : { outcome: 'failed', sent: false, retryable: true, message: 'Il pulsante è stato premuto ma il campo non si è svuotato: invio non confermato' };
+    }
+
+    const returned = await returnToListing(listingId);
+    if (!returned) return { outcome: 'uncertain', sent: true, message: 'Messaggio inviato e verificato, ma il ritorno all’annuncio non è stato confermato' };
+    return { outcome: 'done', sent: true, message: `Messaggio privato inviato e verificato (${mode === 'manual' ? 'conferma manuale' : 'automatico'})` };
   };
 
   // ---------------------------------------------------------------- scansione

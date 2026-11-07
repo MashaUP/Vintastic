@@ -103,7 +103,7 @@ export async function render(ctx) {
       h("td", { class: "small" }, l.publishedAt ? fmtDay(l.publishedAt) : l.photoAt ? h("span", { title: "Vinted non fornisce la data di pubblicazione: questa è la data della foto principale (stima)" }, `${fmtDay(l.photoAt)} `, h("span", { class: "muted" }, "(foto)")) : "—"),
       h("td", { class: "small" }, fmtDay(l.updatedAt), l.repostedAt ? h("div", { class: "muted" }, `ripubbl.: ${fmtDay(l.repostedAt)}`) : null),
       h("td", {}, h("span", { class: `pill ${st[1]}` }, st[0])),
-      h("td", {}, inter ? h("div", { class: "ops" }, ["like", "comment", "offer"].filter((t) => inter[t]).map((t) => h("span", { class: `op-chip ${inter[t]}`, title: inter[t] }, OP_LABEL[t]))) : h("span", { class: "muted small" }, "Mai elaborato")),
+      h("td", {}, inter ? h("div", { class: "ops" }, ["like", "comment", "offer", "message"].filter((t) => inter[t]).map((t) => h("span", { class: `op-chip ${inter[t]}`, title: inter[t] }, OP_LABEL[t]))) : h("span", { class: "muted small" }, "Mai elaborato")),
       h("td", { class: "small" }, inter?.accounts?.map((a) => a.split("@")[0]).join(", ") || "—"),
       h("td", { class: "small" }, l.campaigns?.join(", ") || "—"));
   });
@@ -132,7 +132,7 @@ async function addToCampaign(ctx) {
   const camps = (await rpc("campaigns.list")).filter((c) => !["completed", "stopped"].includes(c.status));
   const sel = h("select", { class: "input" }, h("option", { value: "__new" }, "+ Nuova campagna"), camps.map((c) => h("option", { value: c.id }, `${c.name} (${c.status})`)));
   const name = h("input", { class: "input", placeholder: "Nome della nuova campagna", value: `Campagna ${new Date().toLocaleDateString("it-IT")}` });
-  const types = ["like", "offer", "comment"].map((t) => ({ t, cb: h("input", { type: "checkbox", checked: t === "like" }) }));
+  const types = ["like", "offer", "comment", "message"].map((t) => ({ t, cb: h("input", { type: "checkbox", checked: t === "like" }) }));
   const where = h("select", { class: "input" }, h("option", { value: "end" }, "In fondo alla coda"), h("option", { value: "start" }, "In cima alla coda"));
   const ok = await modal(`Aggiungi ${state.selected.size} annunci`, h("div", { class: "grid" },
     h("label", { class: "field" }, "Campagna", sel), name,

@@ -80,6 +80,7 @@ export function validateCampaign(ctx) {
     if (breakers[t]?.state === "open") errors.push(`Il modulo ${t} è sospeso dal circuit breaker: ${breakers[t].reason || "errori ripetuti"}.`);
   }
   if (types.has("comment")) warnings.push("Vinted non ha commenti pubblici sugli annunci: i commenti diventano suggerimenti da copiare, non vengono inviati.");
+  if (types.has("message")) warnings.push("I messaggi privati contattano i venditori. Verifica il testo e usa la modalità manuale se vuoi premere personalmente Invia.");
 
   let dupes = 0;
   let verify = 0;

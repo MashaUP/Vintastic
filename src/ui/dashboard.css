@@ -69,7 +69,7 @@ body { min-height: 100vh; }
 .feed li { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: center; padding: 8px 6px; border-radius: 8px; }
 .feed li:hover { background: var(--surface-2); }
 .feed .fi { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-3); }
-.feed .fi.like { color: var(--s-like); } .feed .fi.offer { color: var(--s-offer); } .feed .fi.comment { color: var(--s-comment); } .feed .fi.scan, .feed .fi.listing { color: var(--s-scan); }
+.feed .fi.like { color: var(--s-like); } .feed .fi.offer { color: var(--s-offer); } .feed .fi.comment, .feed .fi.message { color: var(--s-comment); } .feed .fi.scan, .feed .fi.listing { color: var(--s-scan); }
 .sys-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }
 .sys-row:last-child { border-bottom: 0; }
 .seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); gap: 2px; flex-wrap: wrap; }

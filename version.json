@@ -1,7 +1,7 @@
 {
-  "version": "1.2.0",
+  "version": "1.3.0",
   "date": "2026-11-07",
-  "zip": "Vintastic-1.2.0.zip",
+  "zip": "Vintastic-1.3.0.zip",
   "notes": [
     "Elimina campagne e notifiche, offerte in percentuale ± (predefinito +5%), like non più segnati «da verificare» per errore, pagina Salute senza errori"
   ]

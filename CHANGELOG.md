@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.0] - 2026-11-07
+
+### Aggiunto
+- Operazione di messaggio privato nelle campagne: apre «Chiedi info», compila la chat e verifica l'invio.
+- Modalità automatica predefinita e modalità con invio manuale selezionabile nelle Impostazioni.
+- Testo del messaggio configurabile, limite giornaliero dedicato e protezione anti-duplicazione tramite ledger.
+
+### Sicurezza e limiti
+- Nessun endpoint privato non documentato per i messaggi: interazione solo con i controlli visibili della chat.
+- CAPTCHA, verifiche, chat non aperta e invii non verificabili interrompono o mettono in verifica l'operazione.
+- In modalità manuale Vintastic attende l'invio dell'utente fino a 4 minuti.
+
+
 Tutte le modifiche rilevanti di Vintastic. Formato [Keep a Changelog](https://keepachangelog.com/it/1.1.0/), versioni [Semantic Versioning](https://semver.org/lang/it/).
 
 ## [1.2.0] - 2026-11-07

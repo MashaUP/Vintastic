@@ -1,8 +1,8 @@
 /**
  * Content script — punto d'ingresso sulle pagine Vinted.
  * Riceve i comandi del service worker (scansione, like, offerta, sessione,
- * notifiche) e annuncia lo stato della pagina. Nessun clic su elementi della
- * pagina: le operazioni passano dalle API ammesse da guard-core.js.
+ * notifiche) e annuncia lo stato della pagina. Like/offerte usano le API
+ * ammesse da guard-core.js; i messaggi privati usano solo i controlli DOM visibili.
  */
 (() => {
   "use strict";
@@ -20,6 +20,7 @@
       if (VT.pageState().challenge) return { outcome: "captcha", sent: false, message: "Vinted chiede una verifica" };
       if (msg.op.type === "like") return VT.like(msg);
       if (msg.op.type === "offer") return VT.offer({ ...msg, op: msg.op });
+      if (msg.op.type === "message") return VT.message(msg);
       return { outcome: "unsupported", sent: false, message: `Operazione non supportata: ${msg.op.type}` };
     },
     "vt:verifyLike": (msg) => VT.verifyLike(msg),

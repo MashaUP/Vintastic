@@ -66,6 +66,7 @@ function render() {
       h("button", { class: "tile like", disabled: !onItem, onclick: () => quickAdd(["like"]) }, icon("heart"), "Metti like", h("small", {}, onItem ? "aggiunge alla coda" : "apri un annuncio")),
       h("button", { class: "tile comment", disabled: !onItem, onclick: async () => { const l = await pageListing(); openDash(`#suggestions?listing=${l?.id || ""}`); } }, icon("message"), "Commenta", h("small", {}, "suggerimenti da copiare")),
       h("button", { class: "tile offer", disabled: !onItem, onclick: () => quickAdd(["offer"]) }, icon("tag"), "Fai offerta", h("small", {}, "con anteprima")),
+      h("button", { class: "tile message", disabled: !onItem, onclick: () => quickAdd(["message"]) }, icon("send"), "Chiedi info", h("small", {}, "messaggio privato in coda")),
       h("button", { class: "tile scan", disabled: !onWardrobe, onclick: async () => { try { await rpc("scan.start", { url: activeTab.url }); toast("Scansione avviata", "", "success"); } catch (e) { toast("Non avviata", e.message, "error"); } } }, icon("search"), "Scansiona", h("small", {}, onWardrobe ? `armadio ${memberIdFrom(activeTab.url)}` : "apri un armadio"))),
       !onVinted ? h("p", { class: "small muted", style: { margin: 0 } }, "Le azioni lavorano sulla pagina Vinted di questa scheda.") : null);
   } else if (tab === "account") {
@@ -81,6 +82,7 @@ function render() {
     pane = h("div", { class: "card" }, h("h3", {}, "Oggi"), h("div", { class: "lim" },
       h("span", {}, "Like"), h("b", {}, `${fmtNum(c.like || 0)} / ${lim.perDay?.like ?? "∞"}`),
       h("span", {}, "Offerte"), h("b", {}, `${fmtNum(c.offer || 0)} / ${lim.perDay?.offer ?? "∞"}`),
+      h("span", {}, "Messaggi"), h("b", {}, `${fmtNum(c.message || 0)} / ${lim.perDay?.message ?? "∞"}`),
       h("span", {}, "Totale account"), h("b", {}, `${fmtNum(c.total || 0)} / ${lim.perAccountDay ?? "∞"}`),
       h("span", {}, "Campagne in corso"), h("b", {}, String((o?.campaigns || []).filter((x) => x.status === "running").length))),
       h("p", { class: "small muted" }, "Soglie scelte da te, non limiti di Vinted. Si azzerano a mezzanotte."));

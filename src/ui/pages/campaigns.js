@@ -26,7 +26,7 @@ export async function render(ctx) {
     refreshSel();
   } });
   return h("div", { class: "grid" },
-    h("div", { class: "page-head" }, h("div", { class: "grow" }, h("h1", {}, "Campagne"), h("p", {}, "Code di like e offerte sugli annunci che scegli tu, con il tuo account. Modificabili anche mentre girano.")),
+    h("div", { class: "page-head" }, h("div", { class: "grow" }, h("h1", {}, "Campagne"), h("p", {}, "Code di like, offerte e messaggi privati sugli annunci che scegli tu, con il tuo account. Modificabili anche mentre girano.")),
       h("button", { class: "btn", onclick: () => rpc("campaigns.pauseAll").then(() => toast("Tutte in pausa")) }, icon("pause", 16), "Pausa tutte"),
       h("button", { class: "btn primary", onclick: () => createDialog(ctx) }, icon("plus", 16), "Nuova campagna")),
     list.length ? h("div", { class: "row" }, delSel, h("button", { class: "btn ghost", onclick: () => removeCampaigns(ctx, list.map((c) => c.id), list) }, icon("trash", 16), `Elimina tutte (${list.length})`)) : null,
@@ -64,7 +64,7 @@ export async function createDialog(ctx, preset = {}) {
   const chosen = new Set(preset.types || ["like"]);
   const orderList = h("ul", { class: "widget-cfg", style: { listStyle: "none", padding: 0 } });
   const drawOrder = () => orderList.replaceChildren(...order.map((t, i) => h("li", {},
-    h("label", { class: "check grow" }, h("input", { type: "checkbox", checked: chosen.has(t), onchange: (e) => { e.target.checked ? chosen.add(t) : chosen.delete(t); } }), OP_LABEL[t], t === "comment" ? h("span", { class: "muted small" }, " — suggerimento da copiare") : null),
+    h("label", { class: "check grow" }, h("input", { type: "checkbox", checked: chosen.has(t), onchange: (e) => { e.target.checked ? chosen.add(t) : chosen.delete(t); } }), OP_LABEL[t], t === "comment" ? h("span", { class: "muted small" }, " — suggerimento da copiare") : t === "message" ? h("span", { class: "muted small" }, " — apre la chat e invia il testo configurato") : null),
     h("button", { class: "btn ghost sm", "aria-label": "Prima", disabled: i === 0, onclick: () => { [order[i - 1], order[i]] = [order[i], order[i - 1]]; drawOrder(); } }, icon("up", 14)),
     h("button", { class: "btn ghost sm", "aria-label": "Dopo", disabled: i === order.length - 1, onclick: () => { [order[i + 1], order[i]] = [order[i], order[i + 1]]; drawOrder(); } }, icon("down", 14)))));
   drawOrder();
@@ -148,7 +148,7 @@ async function detail(ctx, id) {
     c.status === "paused" ? h("button", { class: "btn primary", onclick: () => act("campaigns.resume") }, icon("play", 16), "Riprendi") : null,
     ["running", "paused", "ready"].includes(c.status) ? h("button", { class: "btn danger", onclick: async () => { if (await confirmBox("Interrompere la campagna?", "Le operazioni in attesa vengono annullate. Quelle già eseguite restano.", "Interrompi", true)) act("campaigns.stop"); } }, icon("stop", 16), "Interrompi") : null,
     c.dryRun && c.status !== "running" && (p.completed || 0) > 0 ? h("button", { class: "btn primary", onclick: async () => {
-      if (!(await confirmBox("Eseguire davvero su Vinted?", "Le operazioni fatte in simulazione tornano in coda e la campagna passa in modalità reale: like e offerte verranno inviati davvero dal tuo account. Prima rivedi e approvi l'anteprima.", "Passa alla modalità reale"))) return;
+      if (!(await confirmBox("Eseguire davvero su Vinted?", "Le operazioni fatte in simulazione tornano in coda e la campagna passa in modalità reale: like, offerte e messaggi verranno eseguiti davvero dal tuo account. Prima rivedi e approvi l'anteprima.", "Passa alla modalità reale"))) return;
       try { await rpc("campaigns.goLive", { id }); } catch (e) { return toast("Non riuscito", e.message, "error"); }
       toast("Modalità reale", "Controlla l'anteprima, approvala e premi Avvia.", "success");
       await ctx.refresh();
