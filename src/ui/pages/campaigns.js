@@ -8,6 +8,7 @@ import { OP_LABEL, OP_TYPES } from "../../shared/constants.js";
 import { SORTS } from "../../shared/filters.js";
 import { computeOffer, describeOffer, DEFAULT_OFFER } from "../../shared/offer.js";
 import { offerEditor } from "./offers.js";
+import { messageEditor } from "../message-editor.js";
 
 let detailTimer = null;
 let liveNodes = {};
@@ -64,7 +65,7 @@ export async function createDialog(ctx, preset = {}) {
   const chosen = new Set(preset.types || ["like"]);
   const orderList = h("ul", { class: "widget-cfg", style: { listStyle: "none", padding: 0 } });
   const drawOrder = () => orderList.replaceChildren(...order.map((t, i) => h("li", {},
-    h("label", { class: "check grow" }, h("input", { type: "checkbox", checked: chosen.has(t), onchange: (e) => { e.target.checked ? chosen.add(t) : chosen.delete(t); } }), OP_LABEL[t], t === "comment" ? h("span", { class: "muted small" }, " — suggerimento da copiare") : t === "message" ? h("span", { class: "muted small" }, " — apre la chat e invia il testo configurato") : null),
+    h("label", { class: "check grow" }, h("input", { type: "checkbox", checked: chosen.has(t), onchange: (e) => { e.target.checked ? chosen.add(t) : chosen.delete(t); } }), OP_LABEL[t], t === "comment" ? h("span", { class: "muted small" }, " — suggerimento da copiare") : t === "message" ? h("span", { class: "muted small" }, " — «Chiedi info», solo ai destinatari autorizzati") : null),
     h("button", { class: "btn ghost sm", "aria-label": "Prima", disabled: i === 0, onclick: () => { [order[i - 1], order[i]] = [order[i], order[i - 1]]; drawOrder(); } }, icon("up", 14)),
     h("button", { class: "btn ghost sm", "aria-label": "Dopo", disabled: i === order.length - 1, onclick: () => { [order[i + 1], order[i]] = [order[i], order[i + 1]]; drawOrder(); } }, icon("down", 14)))));
   drawOrder();
@@ -77,6 +78,7 @@ export async function createDialog(ctx, preset = {}) {
   const num = (v) => h("input", { class: "input", type: "number", min: 0, value: v, style: { width: "90px" } });
   const tOpsMin = num(t.betweenOps.min); const tOpsMax = num(t.betweenOps.max);
   const tItMin = num(t.betweenItems.min); const tItMax = num(t.betweenItems.max);
+  const msgBox = messageEditor(ctx.settings, preset.message ? { opsDefaults: { message: preset.message } } : null);
 
   const ok = await modal("Nuova campagna", h("div", { class: "grid" },
     h("label", { class: "field" }, "Nome", name),
@@ -88,7 +90,8 @@ export async function createDialog(ctx, preset = {}) {
     h("details", {}, h("summary", {}, "Timer di questa campagna (secondi)"),
       h("div", { class: "row", style: { marginTop: "8px" } }, h("span", { class: "small grow" }, "Tra operazioni dello stesso annuncio"), tOpsMin, "–", tOpsMax),
       h("div", { class: "row", style: { marginTop: "8px" } }, h("span", { class: "small grow" }, "Tra annunci diversi"), tItMin, "–", tItMax)),
-    h("details", { open: chosen.has("offer") }, h("summary", {}, "Regole delle offerte"), offerBox.node)),
+    h("details", { open: chosen.has("offer") }, h("summary", {}, "Regole delle offerte"), offerBox.node),
+    h("details", { open: chosen.has("message") }, h("summary", {}, "Messaggio privato"), msgBox.node)),
   [{ label: "Annulla", value: false }, { label: "Crea", value: true, cls: "primary" }], { wide: true });
   if (!ok) return null;
   if (!chosen.size) { toast("Scegli almeno un'operazione", "", "warning"); return null; }
@@ -98,6 +101,7 @@ export async function createDialog(ctx, preset = {}) {
     order,
     dryRun: dry.checked,
     offerCfg: offerBox.value(),
+    message: msgBox.value(),
     requireConfirm: { offer: confirmOffer.checked },
     skipRules: { notActive: skipNotActive.checked },
     sortMode: sortMode.value,
@@ -120,7 +124,7 @@ function accountLabel(id, ctx) {
   return `${acc?.login ? "@" + acc.login : `utente ${uid}`} · ${host}`;
 }
 
-const PAUSE_TEXT = { user: "Pausa manuale", offline: "Connessione assente", blocked: "Vinted ha limitato le richieste", captcha: "Verifica richiesta da Vinted", auth: "Sessione da verificare", limit: "Soglia giornaliera raggiunta", errors: "Troppi errori di fila", snapshot: "Serve una nuova approvazione", confirm: "Conferma richiesta", kill: "Kill Switch", tabClosed: "Scheda di lavoro chiusa", module: "Modulo non disponibile" };
+const PAUSE_TEXT = { manual: "Invio manuale non arrivato", user: "Pausa manuale", offline: "Connessione assente", blocked: "Vinted ha limitato le richieste", captcha: "Verifica richiesta da Vinted", auth: "Sessione da verificare", limit: "Soglia giornaliera raggiunta", errors: "Troppi errori di fila", snapshot: "Serve una nuova approvazione", confirm: "Conferma richiesta", kill: "Kill Switch", tabClosed: "Scheda di lavoro chiusa", module: "Modulo non disponibile" };
 
 async function detail(ctx, id) {
   const { campaign: c, items } = await rpc("campaigns.get", { id });
@@ -173,7 +177,7 @@ async function detail(ctx, id) {
       h("dt", {}, "Creata"), h("dd", {}, fmtDate(c.createdAt)), h("dt", {}, "Anteprima"), h("dd", {}, c.snapshot ? `approvata ${ago(c.snapshot.at)}` : "da approvare")),
     h("dl", { class: "kv" }, h("dt", {}, "Account scansione"), h("dd", {}, accountLabel(c.scanAccountId, ctx)), h("dt", {}, "Account interazioni"), h("dd", {}, accountLabel(c.accountId, ctx)),
       h("dt", {}, "Account in uso"), h("dd", {}, c.current ? accountLabel(c.accountId, ctx) : "—"), h("dt", {}, "Sessione"), h("dd", {}, ctx.overview?.session?.accountId === c.accountId ? h("span", { class: "pill good" }, "corrisponde") : h("span", { class: "pill warn" }, "non corrisponde"))),
-    h("dl", { class: "kv" }, h("dt", {}, "Progresso"), h("dd", {}, `${p.percent || 0}% · ${p.itemsDone || 0}/${p.items || 0} annunci`), h("dt", {}, "Operazione corrente"), h("dd", {}, c.current ? `${OP_LABEL[c.current.type]} · ${c.current.title?.slice(0, 40)}` : "—"),
+    h("dl", { class: "kv" }, h("dt", {}, "Progresso"), h("dd", {}, `${p.percent || 0}% · ${p.itemsDone || 0}/${p.items || 0} annunci`), h("dt", {}, "Operazione corrente"), h("dd", {}, c.current ? `${OP_LABEL[c.current.type]} · ${c.current.title?.slice(0, 40)}` : "—", c.current?.awaitingUser ? h("div", {}, h("span", { class: "pill warn" }, "Premi Invia nella scheda di Vinted")) : null),
       h("dt", {}, "Prossima"), h("dd", { class: "small" }, c.status === "running" ? (c.nextLabel || "—") : "—"), h("dt", {}, "Timer"), h("dd", {}, timer))),
     h("div", { class: "progress", style: { marginTop: "12px" } }, h("i", { style: { width: `${p.percent || 0}%` } })),
     h("div", { class: "row small muted", style: { marginTop: "6px" } }, `${p.completed || 0} ${c.dryRun ? "simulate" : "completate"}`, "·", `${p.failed || 0} fallite`, "·", `${p.verify || 0} da verificare`, "·", `${p.skipped || 0} saltate`, "·", `${p.pending || 0} in attesa`));
@@ -210,7 +214,7 @@ function queueRow(ctx, c, it, idx, act) {
     h("td", { style: { maxWidth: "300px" } }, h("a", { href: L.url, target: "_blank", rel: "noopener", style: { color: "var(--text)" } }, L.title || it.listingId), h("div", { class: "muted small" }, `${L.sellerLogin || L.sellerId || ""}${L.status && L.status !== "active" ? ` · ${L.status}` : ""}`)),
     h("td", {}, fmtEuro(L.price, L.currency)),
     h("td", {}, h("div", { class: "ops" }, it.ops.map((o) => h("span", { class: `op-chip ${o.status}`, title: [o.error, o.reason].filter(Boolean).join(" · ") || o.status },
-      OP_LABEL[o.type], o.type === "offer" && o.amount ? ` ${fmtEuro(o.amount)}` : "", " ", statusPill(o.status, "op", o.result?.simulated),
+      OP_LABEL[o.type], o.type === "offer" && o.amount ? ` ${fmtEuro(o.amount)}` : "", o.type === "message" && o.mode ? ` ${o.mode === "manual" ? "B" : "A"}` : "", " ", statusPill(o.status, "op", o.result?.simulated),
       o.status === "verify" ? h("button", { class: "btn ghost sm", title: "Risolvi", onclick: () => resolveDialog(ctx, c, it, o) }, "risolvi") : null)))),
     h("td", {}, prio),
     h("td", {}, h("div", { class: "row" },
@@ -233,6 +237,11 @@ async function editItemDialog(ctx, c, it) {
         const amt = h("input", { class: "input", type: "number", step: "0.01", min: "0.5", value: o.amount ?? "", style: { width: "110px" } });
         amt.addEventListener("change", () => { patch[o.id] = { ...(patch[o.id] || {}), amount: Number(amt.value) }; });
         row.append(h("span", { class: "grow" }), amt, "€");
+      }
+      if (o.type === "message") {
+        const ta = h("textarea", { class: "input", rows: 2, maxlength: 1000, value: o.textLocked ? o.text || "" : "", placeholder: o.text ? `Della campagna: ${o.text.slice(0, 80)}${o.text.length > 80 ? "…" : ""}` : "Testo per questo annuncio (vuoto = quello della campagna)" });
+        ta.addEventListener("change", () => { patch[o.id] = { ...(patch[o.id] || {}), text: ta.value }; });
+        row.append(ta);
       }
       if (o.type === "comment") {
         const ta = h("input", { class: "input", value: o.comment || "", placeholder: "Testo (vuoto = suggerimento automatico)" });
@@ -266,7 +275,9 @@ async function resolveDialog(ctx, c, it, o) {
       const r = await rpc("campaigns.verifyOp", { id: c.id, itemId: it.id, opId: o.id }).catch((e) => ({ message: e.message }));
       toast(r.resolved ? (r.done ? "Like presente: completato" : "Like assente: segnato come non eseguito") : "Verifica automatica non riuscita", r.message || "", r.resolved ? "success" : "warning");
       document.querySelector(".modal-back")?.remove(); ctx.refresh();
-    } }, icon("search", 14), "Verifica automatica (legge lo stato del like)") : h("p", { class: "muted small" }, "Per le offerte: apri la chat dell'annuncio e controlla se l'offerta compare."));
+    } }, icon("search", 14), "Verifica automatica (legge lo stato del like)") : h("p", { class: "muted small" }, o.type === "message"
+      ? "Per i messaggi: apri la chat con il venditore (Vinted › Messaggi) e controlla se il messaggio c'è. Se c'è, premi «È stata eseguita»: non verrà mai rimandato."
+      : "Per le offerte: apri la chat dell'annuncio e controlla se l'offerta compare."));
   const r = await modal("Operazione da verificare", body, [
     { label: "Non è arrivata", value: "no" }, { label: "È stata eseguita", value: "yes", cls: "primary" }]);
   if (!r) return;
@@ -349,6 +360,7 @@ function campaignSettings(ctx, c) {
     confirm: h("input", { type: "checkbox", checked: Boolean(c.opsDefaults?.requireConfirm?.offer) }),
   };
   const offer = offerEditor(c.opsDefaults?.offerCfg || DEFAULT_OFFER);
+  const msg = messageEditor(ctx.settings, c);
   return h("div", { class: "card" }, h("h3", {}, icon("settings", 16), "Impostazioni della campagna"),
     h("div", { class: "grid" },
       h("label", { class: "field" }, "Nome", f.name),
@@ -359,12 +371,14 @@ function campaignSettings(ctx, c) {
       h("div", { class: "row" }, h("span", { class: "small grow" }, "Secondi tra like → offerta"), f.lo, "–", f.loMax),
       h("details", {}, h("summary", {}, `Regole offerte: ${describeOffer(c.opsDefaults?.offerCfg || DEFAULT_OFFER)}`), offer.node,
         h("p", { class: "small muted" }, "Valgono per le offerte aggiunte da ora e per quelle in attesa senza importo. Le offerte già approvate mantengono il loro importo.")),
+      h("details", { open: (c.opsDefaults?.types || []).includes("message") }, h("summary", {}, "Messaggio privato"), msg.node,
+        h("p", { class: "small muted" }, "Cambiando testo o modalità, i messaggi in attesa si ricalcolano e l'anteprima va approvata di nuovo. I testi scritti a mano per un annuncio restano.")),
       h("button", { class: "btn primary", onclick: async () => {
         try {
           await rpc("campaigns.update", { id: c.id, patch: {
             name: f.name.value, dryRun: f.dry.checked,
             timers: { ...c.timers, betweenOps: { min: +f.opsMin.value, max: +f.opsMax.value }, betweenItems: { min: +f.itMin.value, max: +f.itMax.value }, transitions: { ...(c.timers?.transitions || {}), "like>offer": { min: +f.lo.value, max: +f.loMax.value } } },
-            opsDefaults: { ...c.opsDefaults, offerCfg: offer.value(), requireConfirm: { ...(c.opsDefaults?.requireConfirm || {}), offer: f.confirm.checked } },
+            opsDefaults: { ...c.opsDefaults, offerCfg: offer.value(), message: msg.value(), requireConfirm: { ...(c.opsDefaults?.requireConfirm || {}), offer: f.confirm.checked } },
           } });
           toast("Impostazioni salvate", f.dry.checked !== c.dryRun ? "Hai cambiato modalità: approva di nuovo l'anteprima." : "", "success");
           ctx.refresh();
@@ -378,10 +392,12 @@ export async function previewDialog(ctx, id) {
   const pv = await rpc("campaigns.preview", { id });
   const v = pv.validation;
   const ops = pv.items.flatMap((i) => i.ops.filter((o) => ["waiting", "prepared"].includes(o.status)).map((o) => ({ i, o })));
+  const refused = pv.items.filter((i) => i.ops.some((o) => o.type === "message" && o.status === "skipped" && o.result?.recipient == null && /destinatari|venditore|se stessi/i.test(o.reason || "")));
   const body = h("div", { class: "grid" },
     v.errors.length ? h("div", { class: "callout bad" }, h("b", {}, "Da sistemare prima di avviare"), h("ul", {}, v.errors.map((e) => h("li", {}, e)))) : h("div", { class: "callout good" }, h("b", {}, "Controlli superati")),
     v.warnings.length ? h("div", { class: "callout warn" }, h("b", {}, "Avvisi"), h("ul", {}, v.warnings.map((e) => h("li", {}, e)))) : null,
     h("div", { class: "small muted" }, v.infos.join(" · ")),
+    refused.length ? h("div", { class: "callout info small" }, h("b", {}, `${refused.length} messaggi saltati: `), "il venditore non è tra i destinatari autorizzati (Impostazioni › Messaggi). Gli altri tipi di operazione su quegli annunci restano.") : null,
     pv.snapshotDiff?.length && pv.campaign.snapshot ? h("div", { class: "callout warn" }, h("b", {}, "Differenze rispetto all'ultima approvazione"), h("ul", {}, pv.snapshotDiff.slice(0, 10).map((d) => h("li", {}, d)))) : null,
     h("div", { class: "table-wrap", style: { maxHeight: "45vh", overflow: "auto" } }, h("table", { class: "table" },
       h("thead", {}, h("tr", {}, ["#", "Annuncio", "Prezzo", "Operazione", "Dettaglio"].map((x) => h("th", {}, x)))),
@@ -391,7 +407,9 @@ export async function previewDialog(ctx, id) {
         h("td", {}, fmtEuro(i.listing?.price)),
         h("td", {}, OP_LABEL[o.type], o.requireConfirm ? h("span", { class: "pill info", style: { marginLeft: "6px" } }, "con conferma") : null),
         h("td", { class: "small" }, o.type === "offer" ? (o.amount ? h("span", {}, h("b", {}, fmtEuro(o.amount)), " ", h("span", { class: "muted", title: (o.offerPreview?.steps || []).join("\n") }, (o.offerPreview?.warnings || []).join(" "))) : h("span", { class: "pill bad" }, "importo mancante"))
-          : o.type === "comment" ? "Suggerimento da copiare (non inviato)" : "Preferito")))))));
+          : o.type === "comment" ? "Suggerimento da copiare (non inviato)"
+            : o.type === "message" ? (o.text ? h("span", {}, h("span", { class: "pill", style: { marginRight: "6px" } }, o.mode === "manual" ? "B · premi tu Invia" : "A · automatico"), h("span", { style: { whiteSpace: "pre-wrap" } }, o.text)) : h("span", { class: "pill bad" }, o.msgError || "testo mancante"))
+              : "Preferito")))))));
   const actions = [{ label: "Chiudi", value: false }];
   actions.push({ label: "Approva anteprima", value: "approve", cls: v.errors.filter((e) => !/anteprima/.test(e)).length ? "" : "primary" });
   const r = await modal(`Anteprima: ${pv.campaign.name}`, body, actions, { wide: true });

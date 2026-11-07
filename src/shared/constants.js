@@ -4,7 +4,7 @@
  */
 
 export const APP_NAME = "Vintastic";
-export const VERSION = "1.3.1";
+export const VERSION = "1.4.0";
 export const REPO = "MashaUP/Vintastic";
 export const DB_NAME = "vintastic";
 export const DB_VERSION = 3;            // vedi migrations.js
@@ -60,7 +60,7 @@ export const GLOSSARY = {
   "Dry Run": "Simulazione: la campagna gira per intero ma non invia niente a Vinted.",
   "Retry": "Nuovo tentativo. Vintastic ripete solo operazioni fallite con esito certo, mai quelle dall'esito incerto.",
   "Circuit Breaker": "Interruttore automatico: dopo errori ripetuti un modulo si spegne da solo e lascia funzionare il resto.",
-  "Ledger": "Registro globale delle interazioni: impedisce di ripetere lo stesso like o la stessa offerta.",
+  "Ledger": "Registro globale delle interazioni: impedisce di ripetere lo stesso like, la stessa offerta o lo stesso messaggio.",
   "Snapshot": "Fotografia delle operazioni approvate. Se l'annuncio cambia, Vintastic chiede una nuova approvazione.",
 };
 
@@ -84,8 +84,11 @@ export const DEFAULT_SETTINGS = {
       "like>offer": { min: 10, max: 25 },
       "like>comment": { min: 10, max: 25 },
       "comment>offer": { min: 10, max: 25 },
+      "like>message": { min: 10, max: 25 },
+      "comment>message": { min: 10, max: 25 },
       "offer>message": { min: 10, max: 25 },
       "message>like": { min: 10, max: 25 },
+      "message>comment": { min: 10, max: 25 },
       "message>offer": { min: 10, max: 25 },
     },
     minFloor: 3,                               // nessun intervallo sotto questo valore
@@ -114,7 +117,13 @@ export const DEFAULT_SETTINGS = {
   discord: { webhookUrl: "", events: { campaignDone: true, error: true, system: false, update: true } },
   ai: { provider: "local", endpoint: "", model: "", apiKey: "", language: "it", tone: "cordiale", count: 3 },
   offer: { defaultMode: "saving", defaultRules: null },
-  messages: { mode: "auto", text: "Ciao! L'articolo è ancora disponibile? Grazie!" },
+  messages: {                       // messaggi privati (vedi shared/messages.js)
+    mode: "auto",                   // auto = A (Vintastic preme Invia) | manual = B (premi tu Invia)
+    text: "Ciao! L'articolo è ancora disponibile? Grazie!",   // messaggio predefinito
+    templates: [],                  // [{ id, name, text }] modelli riutilizzabili
+    recipients: [],                 // [{ id, label }] venditori a cui si può scrivere: nessun altro
+    manualWaitSeconds: 240,         // attesa dell'invio manuale (modalità B)
+  },
 };
 
 /** Link del progetto (fallback locale di links.json, aggiornabile da GitHub). */

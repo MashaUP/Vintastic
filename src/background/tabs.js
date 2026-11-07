@@ -105,13 +105,23 @@ chrome.tabs?.onRemoved?.addListener(async (tabId) => {
   for (const fn of removedHandlers) { try { fn(tabId, info); } catch { /* ignora */ } }
 });
 
-/** Invia un comando al content script della scheda, con limite di tempo. */
+/**
+ * Invia un comando al content script della scheda, con limite di tempo.
+ * notSent: true SOLO se il comando non è mai arrivato alla pagina (nessun content
+ * script in ascolto). Se la pagina cambia o si chiude mentre il comando è in corso
+ * («message port closed»), il comando può essere già stato eseguito: per una
+ * scrittura su Vinted l'esito diventa incerto, mai «non inviato».
+ */
 export function sendToTab(tabId, message, timeoutMs = 90_000) {
   return new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(Object.assign(new Error("Nessuna risposta dalla pagina di Vinted."), { code: "timeout" })), timeoutMs);
     chrome.tabs.sendMessage(tabId, message).then((r) => { clearTimeout(t); resolve(r); }, (e) => {
       clearTimeout(t);
-      reject(Object.assign(new Error(/Receiving end/i.test(e?.message) ? "La pagina di Vinted non ha Vintastic attivo: ricaricala." : e?.message), { code: "noContent", notSent: true }));
+      const msg = String(e?.message || e);
+      if (/Receiving end does not exist|Could not establish connection/i.test(msg)) {
+        return reject(Object.assign(new Error("La pagina di Vinted non ha Vintastic attivo: ricaricala."), { code: "noContent", notSent: true }));
+      }
+      reject(Object.assign(new Error(`Pagina di Vinted cambiata o chiusa durante il comando (${msg})`), { code: "lost" }));
     });
   });
 }

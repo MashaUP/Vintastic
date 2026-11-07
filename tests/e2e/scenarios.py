@@ -397,6 +397,7 @@ async def t_crash_recovery(env):
     await env.wait_for(running, 30, 0.3, "like in preparazione")
     fake, profile = env.fake, env.profile
     await harness.stop(env)
+    likes_before = [r for r in fake.requests if r[1].endswith("/user_favourites/toggle")]
     del fake.fail[r"^/items/\d+"]
     env2 = await harness.start(fake=fake, profile=profile)
     try:
@@ -406,7 +407,9 @@ async def t_crash_recovery(env):
             ops = [o for i in x["items"] for o in i["ops"]]
             return x if ops and all(o["status"] in ("waiting", "completed") for o in ops) else None
         x = await env2.wait_for(back_waiting, 40, 1, "operazione non inviata rimessa in coda dopo il riavvio")
-        check(not [r for r in fake.requests if r[1].endswith("/user_favourites/toggle")], "nessun like inviato prima del riavvio")
+        # Dopo il riavvio la campagna riprende e può già aver messo il like: conta ciò che è partito PRIMA.
+        check(not likes_before, "nessun like inviato prima del riavvio")
+        check(len([r for r in fake.requests if r[1].endswith("/user_favourites/toggle")]) <= 1, "al massimo un like dopo il riavvio, nessun doppione")
         rec2 = await env2.rpc("recovery.list")
         check(rec2["lastRecovery"]["reset"] >= 1, f"recupero: {rec2['lastRecovery']}")
         check(len(rec2["verify"]) == 1, "lo stato 'da verificare' sopravvive al riavvio del browser")

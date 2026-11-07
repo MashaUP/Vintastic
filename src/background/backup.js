@@ -3,6 +3,7 @@
  */
 
 import * as db from "./db.js";
+import { redactMessages } from "../shared/messages.js";
 import { getSettings, replaceSettings, getState } from "./store.js";
 import { log } from "./logger.js";
 import { buildExport, validateImport, dedupeMerge, EXPORT_PARTS } from "../shared/schema.js";
@@ -124,7 +125,7 @@ export async function applyRetention() {
   return out;
 }
 
-/** Support Bundle: diagnostica senza cookie, token, password, webhook o dati personali. */
+/** Support Bundle: diagnostica senza cookie, token, password, webhook, testi dei messaggi o dati personali. */
 export async function supportBundle(extra = {}) {
   const s = await getSettings();
   const logs = (await db.getAll("logs")).slice(-300);
@@ -132,7 +133,8 @@ export async function supportBundle(extra = {}) {
   const bundle = {
     app: "Vintastic", version: VERSION, at: new Date().toISOString(),
     browser: typeof navigator !== "undefined" ? navigator.userAgent : null,
-    settings: { ...s, discord: { ...s.discord, webhookUrl: s.discord?.webhookUrl ? "[impostato]" : "" }, ai: { ...s.ai, apiKey: s.ai?.apiKey ? "[impostata]" : "" } },
+    // Il contenuto dei messaggi privati (testi, modelli, destinatari) non esce mai: solo conteggi.
+    settings: { ...s, discord: { ...s.discord, webhookUrl: s.discord?.webhookUrl ? "[impostato]" : "" }, ai: { ...s.ai, apiKey: s.ai?.apiKey ? "[impostata]" : "" }, messages: redactMessages(s.messages) },
     health: await getState("lastHealth", null),
     breakers: await getState("breakers", {}),
     capabilities: await getState("capabilities", {}),

@@ -7,6 +7,7 @@ import asyncio, json, os, sys, time, traceback
 sys.path.insert(0, os.path.dirname(__file__))
 import harness
 import scenarios as S
+import messages as M
 
 ORDER = [
     ("installazione e interfaccia", S.t_install_and_ui),
@@ -31,6 +32,12 @@ ORDER = [
     ("like senza API di lettura", S.t_like_without_item_api),
     ("offerte rifiutate, regole +5%, eliminazioni", S.t_offer_rules_and_cleanup),
     ("risoluzione in blocco", S.t_resolve_all),
+    ("messaggi A: simulazione, invio, ritorno, No Repeat, privacy", M.t_msg_auto),
+    ("messaggi B: compilazione e invio dell'utente", M.t_msg_manual),
+    ("messaggi B: timeout e campo svuotato", M.t_msg_manual_timeout),
+    ("messaggi: destinatari e casi di errore", M.t_msg_failures),
+    ("messaggi: ritorno, invio lento, CAPTCHA", M.t_msg_captcha_return),
+    ("messaggi: crash del worker e ripresa", M.t_msg_crash),
 ]
 
 

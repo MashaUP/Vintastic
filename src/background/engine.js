@@ -11,6 +11,9 @@
  * - Le code si modificano anche durante l'esecuzione; le operazioni completate
  *   o in corso non si toccano.
  * - Mai acquisti: il content script usa solo le richieste ammesse da guard-core.js.
+ * - Messaggi privati: solo verso i destinatari autorizzati, testo fotografato
+ *   nell'anteprima, invio in due fasi (apertura chat → compilazione/invio) e
+ *   conferma solo quando il nuovo messaggio compare nella conversazione.
  */
 
 import * as db from "./db.js";
@@ -32,6 +35,7 @@ import * as Q from "../shared/queue.js";
 import { validateCampaign, makeSnapshot, diffSnapshot } from "../shared/policy.js";
 import { computeOffer } from "../shared/offer.js";
 import { sortItems } from "../shared/filters.js";
+import { fillMessageOps, recipientCheck, cleanRecipients, MANUAL_WAIT_DEFAULT } from "../shared/messages.js";
 
 const ALARM = "vt-engine";
 let busy = false;
@@ -87,6 +91,7 @@ export async function createCampaign(input) {
       order: input.order || OP_TYPES.slice(),
       offerCfg: input.offerCfg || s.offer?.defaultRules || null,
       comment: input.comment || "",
+      message: input.message || { source: "default" },   // vedi shared/messages.js: messageConfig
       requireConfirm: input.requireConfirm || {},
     },
     timers: input.timers || {},
@@ -117,6 +122,11 @@ function fillOfferAmounts(c, items) {
   }));
 }
 
+/** Importi delle offerte e testi dei messaggi: ciò che l'anteprima mostra e l'approvazione fotografa. */
+async function prepare(c, items) {
+  return fillMessageOps(c, fillOfferAmounts(c, items), await getSettings());
+}
+
 export function addToCampaign(campaignId, listings, spec = {}, where = "end") {
   return withLock(async () => {
     const c = await getCampaign(campaignId);
@@ -125,11 +135,11 @@ export function addToCampaign(campaignId, listings, spec = {}, where = "end") {
     const sess = await session.current();
     const withScan = listings.map((l) => ({ ...l, scannedBy: l.scannedBy || sess.accountId || null }));
     const r = Q.addItems(items, withScan, { ...c.opsDefaults, ...spec, order: c.opsDefaults.order }, campaignId, where);
-    let next = fillOfferAmounts(c, r.items);
+    const next = await prepare(c, r.items);
     await saveItems(next.filter((i) => r.changed.includes(i.id)));
     histC(c, "aggiunti annunci", `${r.changed.length} aggiunti/aggiornati, ${r.rejected.length} scartati`);
     if (c.status === "completed") Object.assign(c, transitionCampaign(c, "ready"));
-    if (c.snapshot && c.status !== "draft") c.snapshot = makeSnapshot(next, Date.now(), await getSettings()); // modifica esplicita della coda = nuova fotografia approvata
+    if (c.snapshot && c.status !== "draft") c.snapshot = makeSnapshot(next); // modifica esplicita della coda = nuova fotografia approvata
     await saveCampaign(c, next);
     await activity("queue", `${r.changed.length} annunci aggiunti a «${c.name}»`, { campaignId });
     if (c.status === "running") kick();
@@ -190,10 +200,10 @@ export function mutateQueue(campaignId, action, args = {}) {
       }
       default: throw new Error(`Azione sconosciuta: ${action}`);
     }
-    items = fillOfferAmounts(c, items);
+    items = await prepare(c, items);
     await saveItems(items);
     histC(c, action, detail);
-    if (c.snapshot && ["running", "paused", "ready"].includes(c.status)) c.snapshot = makeSnapshot(items, Date.now(), await getSettings());
+    if (c.snapshot && ["running", "paused", "ready"].includes(c.status)) c.snapshot = makeSnapshot(items);
     if (c.status === "completed" && Q.nextOp(items)) Object.assign(c, transitionCampaign(c, "ready"));
     await saveCampaign(c, items);
     if (c.status === "running") kick();
@@ -219,7 +229,7 @@ function resetSimulated(c, items) {
     return touched ? { ...i, ops, history: [...(i.history || []), { at: Date.now(), action: "pronto per la modalità reale" }].slice(-50) } : i;
   });
   if (["completed", "stopped"].includes(c.status) && n) Object.assign(c, transitionCampaign(c, "ready"), { completedAt: null, lastOp: null });
-  return { items: fillOfferAmounts(c, out), count: n };
+  return { items: out, count: n };
 }
 
 export function updateCampaign(id, patch) {
@@ -230,12 +240,13 @@ export function updateCampaign(id, patch) {
     if (c.status === "running" && "dryRun" in patch && patch.dryRun !== c.dryRun) throw new Error("Metti in pausa la campagna prima di passare tra simulazione e modalità reale.");
     const goingLive = c.dryRun && patch.dryRun === false;
     const offerChanged = "opsDefaults" in patch && stableStringify(patch.opsDefaults?.offerCfg || null) !== stableStringify(c.opsDefaults?.offerCfg || null);
+    const messageChanged = "opsDefaults" in patch && stableStringify(patch.opsDefaults?.message || null) !== stableStringify(c.opsDefaults?.message || null);
     for (const k of allowed) if (k in patch) c[k] = patch[k];
     histC(c, "impostazioni modificate", Object.keys(patch).join(", "));
     let items = await campaignItems(id);
     if (goingLive) {
       const r = resetSimulated(c, items);
-      items = r.items;
+      items = await prepare(c, r.items);
       await saveItems(items);
       histC(c, "passata in modalità reale", `${r.count} operazioni simulate rimesse in coda`);
     }
@@ -252,12 +263,17 @@ export function updateCampaign(id, patch) {
           return { ...o, status: "waiting", amount: null, offerCfg: null, offerPreview: null, error: null, retryable: undefined, updatedAt: Date.now() };
         }),
       }));
-      items = fillOfferAmounts(c, items);
+      items = await prepare(c, items);
       await saveItems(items);
       if (n && ["completed", "stopped"].includes(c.status)) Object.assign(c, transitionCampaign(c, "ready"), { completedAt: null });
       histC(c, "regole offerte cambiate", `${n} offerte ricalcolate`);
     }
-    if ("dryRun" in patch || "accountId" in patch || offerChanged) c.snapshot = null;     // cambia il significato: va riapprovata
+    if (messageChanged) {
+      items = await prepare(c, items);
+      await saveItems(items);
+      histC(c, "messaggi cambiati", "testo o modalità da riapprovare");
+    }
+    if ("dryRun" in patch || "accountId" in patch || offerChanged || messageChanged) c.snapshot = null;     // cambia il significato: va riapprovata
     await saveCampaign(c, items);
     return c;
   });
@@ -329,20 +345,19 @@ export async function policyContext(c, items) {
 
 export async function preview(id) {
   const c = await getCampaign(id);
-  let items = fillOfferAmounts(c, await campaignItems(id));
+  const items = await prepare(c, await campaignItems(id));
   await saveItems(items);
-  const context = await policyContext(c, items);
-  const v = validateCampaign(context);
-  return { campaign: c, items: Q.executionOrder(items), validation: v, snapshotDiff: diffSnapshot(c.snapshot, items, context.settings) };
+  const v = validateCampaign(await policyContext(c, items));
+  return { campaign: c, items: Q.executionOrder(items), validation: v, snapshotDiff: diffSnapshot(c.snapshot, items) };
 }
 
 /** L'utente approva l'anteprima: fotografia delle operazioni e degli importi. */
 export function approve(id) {
   return withLock(async () => {
     const c = await getCampaign(id);
-    const items = fillOfferAmounts(c, await campaignItems(id));
+    const items = await prepare(c, await campaignItems(id));
     await saveItems(items);
-    c.snapshot = makeSnapshot(items, Date.now(), await getSettings());
+    c.snapshot = makeSnapshot(items);
     if (c.status === "draft") Object.assign(c, transitionCampaign(c, "ready"));
     if (c.status === "stopped") Object.assign(c, transitionCampaign(c, "ready"));
     if (c.pauseReason === "snapshot") { c.pauseReason = null; c.pauseDetail = null; }
@@ -385,7 +400,7 @@ async function pauseNoLock(id, reason, detail, { auto = false, resumeAt = null }
   Object.assign(c, { pauseReason: reason, pauseDetail: detail, autoPaused: auto, resumeAt, nextAt: null });
   histC(c, "pausa", `${reason}${detail ? `: ${detail}` : ""}`);
   await saveCampaign(c, await campaignItems(id));
-  const titles = { user: "In pausa", offline: "In pausa: connessione assente", blocked: "In pausa: Vinted ha limitato le richieste", captcha: "In pausa: verifica richiesta da Vinted", auth: "In pausa: sessione da verificare", limit: "In pausa: soglia raggiunta", errors: "In pausa: troppi errori di fila", snapshot: "In pausa: serve una nuova approvazione", confirm: "Conferma richiesta", kill: "Fermata dal Kill Switch", tabClosed: "In pausa: scheda di lavoro chiusa", module: "In pausa: modulo non disponibile" };
+  const titles = { manual: "In pausa: invio manuale non arrivato", user: "In pausa", offline: "In pausa: connessione assente", blocked: "In pausa: Vinted ha limitato le richieste", captcha: "In pausa: verifica richiesta da Vinted", auth: "In pausa: sessione da verificare", limit: "In pausa: soglia raggiunta", errors: "In pausa: troppi errori di fila", snapshot: "In pausa: serve una nuova approvazione", confirm: "Conferma richiesta", kill: "Fermata dal Kill Switch", tabClosed: "In pausa: scheda di lavoro chiusa", module: "In pausa: modulo non disponibile" };
   await notify({ category: reason === "auth" ? "sessionExpired" : reason === "limit" ? "limitReached" : reason === "offline" ? "connection" : "campaignPaused", level: reason === "user" || reason === "confirm" ? "info" : "warning", title: `${titles[reason] || "In pausa"} — ${c.name}`, body: detail, link: `#campaigns/${c.id}`, campaignId: c.id, persistent: !["user"].includes(reason), groupKey: `pause-${c.id}` });
   await activity("campaign", `«${c.name}» in pausa (${titles[reason] || reason})`, { campaignId: c.id });
   return c;
@@ -593,6 +608,12 @@ async function runOp(c, item, op, settings) {
       return finishOp(c, item, op, "skipped", { reason: `No Repeat: ${decision.reason}`, result: { ledger: decision.code } });
     }
   }
+  // Messaggi: destinatario autorizzato e testo approvato, anche in simulazione.
+  if (op.type === "message") {
+    const who = recipientCheck(settings, item.listing?.sellerId, c.accountId?.split("@")[0]);
+    if (!who.ok) return finishOp(c, item, op, "skipped", { reason: who.reason, result: { recipient: who.code } });
+    if (!op.text) return finishOp(c, item, op, "failed", { error: op.msgError || "Testo del messaggio mancante: apri l'anteprima", retryable: true });
+  }
   if (op.requireConfirm && !op.confirmedAt) {
     await patchCampaign(c.id, (cur) => { cur.pendingConfirm = { itemId: item.id, opId: op.id, type: op.type, title, amount: op.amount ?? null }; });
     await pauseNoLockSafe(c.id, "confirm", `${label} su «${title}»${op.amount ? ` · ${op.amount} €` : ""}: premi Conferma per procedere.`);
@@ -661,17 +682,19 @@ async function runOp(c, item, op, settings) {
     return notSent(c, item, op, "error", e.message);
   }
 
+  if (op.type === "message") return runMessage(c, item, op, settings, tabId);
+
   // 8. Punto di non ritorno: da qui in poi un esito mancante = DA VERIFICARE.
   await journal({ phase: "sending", opId: op.id, itemId: item.id, campaignId: c.id, type: op.type, listingId: item.listingId });
   let res;
   try {
     res = await tabs.sendToTab(tabId, {
       type: "vt:exec",
-      op: { type: op.type, amount: op.amount ?? null, mode: settings.messages?.mode || "auto", text: settings.messages?.text || "" },
+      op: { type: op.type, amount: op.amount ?? null },
       listing: { id: item.listingId, sellerId: item.listing.sellerId, price: item.listing.price, currency: item.listing.currency, url: item.listing.url },
       expectedUserId: c.accountId?.split("@")[0],
       snapshotPrice: item.listing.price,
-    }, op.type === "message" && settings.messages?.mode === "manual" ? 4 * 60_000 + 30_000 : 90_000);
+    }, 90_000);
   } catch (e) {
     if (e.notSent) return notSent(c, item, op, "error", e.message);
     res = { outcome: "uncertain", sent: true, message: e.message };
@@ -680,6 +703,118 @@ async function runOp(c, item, op, settings) {
 }
 
 const pauseNoLockSafe = (id, reason, detail, opts) => pause(id, reason, detail, opts);
+
+// ------------------------------------------------------------------ messaggio privato
+
+const msgListing = (item) => ({ id: item.listingId, sellerId: item.listing.sellerId, url: item.listing.url });
+
+/** Aspetta il campo #composerInput nella scheda (la chat può aprirsi nella stessa pagina o in una nuova). */
+async function waitComposer(tabId, timeoutMs) {
+  const end = Date.now() + timeoutMs;
+  let last = { ready: false };
+  while (Date.now() < end) {
+    const r = await tabs.sendToTab(tabId, { type: "vt:msgComposer" }, 4000).catch(() => null);   // pagina in caricamento: si riprova
+    if (r) last = r;
+    if (r?.challenge || r?.ready) return r;
+    await sleep(500);
+  }
+  return last;
+}
+
+/** Controlla ogni secondo se il nuovo messaggio è comparso nella conversazione. */
+async function waitSent(tabId, timeoutMs) {
+  const end = Date.now() + timeoutMs;
+  let last = { state: "unknown" };
+  while (Date.now() < end) {
+    const r = await tabs.sendToTab(tabId, { type: "vt:msgStatus" }, 4000).catch(() => null);
+    if (r) last = r;
+    if (r?.state === "sent" || r?.state === "challenge") return r;
+    await sleep(1000);
+  }
+  return { ...last, timedOut: true };
+}
+
+/** Dopo l'invio: la scheda di lavoro torna sull'annuncio. */
+async function returnToListing(tabId, c, item) {
+  try {
+    const url = item.listing.url || `${c.origin}/items/${item.listingId}`;
+    const re = new RegExp(`^/items/${item.listingId}(?:$|[-/])`);
+    const ready = tabs.waitReady(tabId, 25_000, (pg) => re.test(String(pg?.path || "")));
+    await tabs.navigate(tabId, url);
+    const pg = await ready;
+    return !pg?.challenge;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Messaggio privato reale. La scheda è già sull'annuncio.
+ * 1. «Chiedi info» (nessun messaggio inviato: si apre solo la chat).
+ * 2. Campo #composerInput pronto.
+ * 3. Punto di non ritorno (journal "sending"), compilazione e, in modalità A, clic su Invia.
+ * 4. Conferma solo con un messaggio nuovo nella conversazione; altrimenti DA VERIFICARE.
+ * 5. Ritorno all'annuncio.
+ */
+async function runMessage(c, item, op, settings, tabId) {
+  const ms = settings.messages || {};
+  const mode = op.mode === "manual" ? "manual" : "auto";
+  const allowed = cleanRecipients(ms.recipients).map((r) => r.id);
+  let open;
+  try {
+    open = await tabs.sendToTab(tabId, { type: "vt:msgOpen", listing: msgListing(item), allowed, self: c.accountId?.split("@")[0] || null }, 30_000);
+  } catch (e) {
+    if (e.notSent) return notSent(c, item, op, "error", e.message);
+    open = { outcome: "opened" };     // la pagina è cambiata subito dopo il clic: la chat si sta aprendo
+  }
+  if (open?.outcome !== "opened") return applyOutcome(c, item, op, { ...open, sent: false }, tabId);
+
+  const chat = await waitComposer(tabId, 30_000);
+  if (chat.challenge) return notSent(c, item, op, "captcha", "Vinted chiede una verifica per aprire la chat", tabId);
+  if (chat.loggedIn === false) return notSent(c, item, op, "auth", "Sessione Vinted non attiva nella chat", tabId);
+  if (!chat.ready) return notSent(c, item, op, "error", "La chat non si è aperta: campo del messaggio (#composerInput) non trovato entro 30 secondi");
+
+  // Punto di non ritorno: da qui un esito mancante = DA VERIFICARE, mai ripetuto da solo.
+  await journal({ phase: "sending", opId: op.id, itemId: item.id, campaignId: c.id, type: op.type, listingId: item.listingId });
+  if (mode === "manual") {
+    await tabs.focus(tabId);
+    await patchCampaign(c.id, (cur) => { if (cur.current) cur.current.awaitingUser = true; });
+    await notify({ category: "info", level: "info", title: "Premi Invia su Vinted", body: `Il messaggio per «${item.listing?.title?.slice(0, 50) || item.listingId}» è pronto nella chat. Controllalo e premi Invia.`, link: `#campaigns/${c.id}`, campaignId: c.id, groupKey: `manual-${c.id}` });
+  }
+  let fill;
+  try {
+    fill = await tabs.sendToTab(tabId, { type: "vt:msgFill", text: op.text, mode }, 20_000);
+  } catch (e) {
+    if (e.notSent) return notSent(c, item, op, "error", e.message);
+    fill = { outcome: "uncertain", sent: true, message: `Pagina della chat persa durante la compilazione: ${e.message}` };
+  }
+  if (fill?.outcome !== "filled") return applyOutcome(c, item, op, fill || { outcome: "uncertain", sent: true, message: "Nessuna risposta dalla chat" }, tabId);
+
+  const waitS = mode === "manual" ? Math.max(5, Math.min(240, Number(ms.manualWaitSeconds) || MANUAL_WAIT_DEFAULT)) : 45;
+  const st = await waitSent(tabId, waitS * 1000);
+  if (st.state === "challenge") {
+    if (st.attempted || mode === "auto") return applyOutcome(c, item, op, { outcome: "uncertain", sent: true, message: "Verifica di Vinted comparsa durante l'invio: controlla la chat prima di riprovare" }, tabId);
+    return notSent(c, item, op, "captcha", "Vinted chiede una verifica nella chat (messaggio non inviato)", tabId);
+  }
+  if (st.state !== "sent") {
+    if (mode === "manual" && !st.attempted && st.state === "pending" && !st.cleared) {
+      // Il testo è ancora nel campo e nessuno ha premuto Invia: certamente non inviato.
+      await finishOp(c, item, op, "failed", { error: `Invio manuale non arrivato entro ${waitS} secondi: il testo è rimasto nel campo, niente è stato inviato`, retryable: true });
+      await setLedger(c.accountId, item, op, "failed", c.id, { result: "manualTimeout" });
+      return pause(c.id, "manual", `Nessun invio entro ${waitS} secondi per «${item.listing?.title?.slice(0, 50) || item.listingId}». Quando sei pronto premi Riprendi; il messaggio saltato si ripete con «Ripeti falliti».`);
+    }
+    const why = st.state === "unknown" ? "la pagina della chat è cambiata prima della conferma"
+      : st.cleared ? "il campo si è svuotato ma il messaggio non compare nella conversazione"
+        : "nessun messaggio nuovo nella conversazione";
+    return applyOutcome(c, item, op, { outcome: "uncertain", sent: true, message: `Invio non confermato: ${why}. Controlla la chat prima di riprovare` }, tabId);
+  }
+
+  await applyOutcome(c, item, op, { outcome: "done", sent: true, message: `Messaggio inviato e verificato (${mode === "manual" ? "B, inviato da te" : "A, automatico"})` }, tabId);
+  if (!(await returnToListing(tabId, c, item))) {
+    await log({ level: "warn", category: "op", campaignId: c.id, listingId: item.listingId, opType: op.type, message: "Messaggio inviato e verificato, ma il ritorno all'annuncio non è confermato: la prossima operazione riapre la pagina giusta" });
+  }
+  return null;
+}
 
 function setCurrent(campaignId, item, op) {
   return patchCampaign(campaignId, (c) => {
@@ -691,7 +826,8 @@ function setCurrent(campaignId, item, op) {
 async function notSent(c, item, op, kind, message, tabId = null) {
   await updateOp(c.id, item.id, op.id, { status: "waiting", error: message, startedAt: null });
   const prev = await db.get("ledger", ledgerKey(c.accountId, item.listingId, op.type));
-  if (prev?.status === "running") await db.put("ledger", { ...prev, status: prev.history?.length > 1 ? prev.history[prev.history.length - 2].status : "failed" });
+  // Torna allo stato di prima del tentativo (mai "running": bloccherebbe per sempre l'annuncio).
+  if (prev?.status === "running") await db.put("ledger", { ...prev, status: [...(prev.history || [])].reverse().find((h) => h.status && h.status !== "running")?.status || "failed" });
   await journal({ phase: "result", opId: op.id, itemId: item.id, campaignId: c.id, type: op.type, status: "notSent", note: message });
   const cur = await patchCampaign(c.id, (x) => {
     x.current = null;
@@ -759,7 +895,7 @@ async function applyOutcome(c, item, op, res, tabId) {
       await setLedger(c.accountId, item, op, "completed", c.id, { result: res.outcome });
       await health.recordSuccess(op.type);
       await patchCampaign(c.id, (cur) => { cur.consecutiveFailures = 0; });
-      const verb = op.type === "offer" ? (res.outcome === "already" ? "già presente" : "inviata") : (res.outcome === "already" ? "già presente" : "completato");
+      const verb = res.outcome === "already" ? "già presente" : op.type === "offer" ? "inviata" : op.type === "message" ? "inviato" : "completato";
       await activity(op.type, `${label} ${verb}: «${title}»${op.amount ? ` · ${op.amount} €` : ""}`, { campaignId: c.id, listingId: item.listingId });
       return finishOp(c, item, op, "completed", { result: { outcome: res.outcome, detail: res.message }, listingPatch });
     }
@@ -898,6 +1034,7 @@ export async function verifyOp(campaignId, itemId, opId) {
   const op = item?.ops.find((o) => o.id === opId);
   const c = await getCampaign(campaignId);
   if (!op || !c) throw new Error("Operazione non trovata");
+  if (op.type === "message") return { supported: false, message: "Per i messaggi la verifica è manuale: apri la chat con il venditore su Vinted e controlla se il messaggio c'è." };
   if (op.type !== "like") return { supported: false, message: "Per le offerte la verifica è manuale: apri la chat dell'annuncio su Vinted e controlla se l'offerta c'è." };
   const { tabId } = await tabs.ensureAt(c.origin, item.listing.url || `${c.origin}/items/${item.listingId}`);
   const r = await tabs.sendToTab(tabId, { type: "vt:verifyLike", listing: { id: item.listingId, sellerId: item.listing.sellerId } }, 30_000);

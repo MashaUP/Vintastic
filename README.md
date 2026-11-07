@@ -30,9 +30,10 @@
 |---|---|
 | **Scanner degli armadi** | Legge tutti gli annunci di un venditore (paginazione, nessun doppione, aggiornamento dei dati, storico prezzi, annunci ripubblicati collegati). Date separate: pubblicazione, aggiornamento, ripubblicazione, data della foto. Mai inventate. |
 | **Filtri e Top N** | Ultimi 5/10/20/50/100 o un numero a scelta, ultime 24 ore / 2, 3, 7, 14, 30 giorni / intervallo, combinabili. Prezzo, stato, venditore, «escludi già fatti». Ordine ribaltabile (più recenti o meno recenti in cima). Filtri salvabili. Vinted non dà la data di pubblicazione: si usa la data della foto (stima) e poi l'ordine dell'armadio. |
-| **Campagne** | Like e offerte, singoli o combinati, nell'ordine che scegli; timer configurabili (tra operazioni, tra annunci, tra tipi); conferma facoltativa per ogni offerta; simulazione (Dry Run). |
+| **Campagne** | Like, offerte e messaggi privati, singoli o combinati, nell'ordine che scegli; timer configurabili (tra operazioni, tra annunci, tra tipi); conferma facoltativa per ogni offerta; simulazione (Dry Run). |
+| **Messaggi privati** | «Chiedi info» sull'annuncio, testo nella chat, invio **automatico (A)** o **premuto da te (B)**. Solo verso i **destinatari autorizzati** che scegli tu (i tuoi account, gli amici che ti hanno dato l'ok): agli altri venditori niente. Testo predefinito, modello, scritto ora, a rotazione o casuale tra modelli, domanda sull'annuncio; segnaposto `{titolo}` `{prezzo}` `{marca}` `{taglia}` `{venditore}`; modificabile annuncio per annuncio. Conta come inviato solo quando compare nella conversazione. |
 | **Code dinamiche** | Aggiungi annunci e operazioni, rimuovi, modifica, cambia priorità, riordina (anche casuale, con anteprima) **mentre la campagna gira**. Le operazioni completate non si toccano. Ogni modifica è nello storico. |
-| **No Repeat** | Global Interaction Ledger: lo stesso account non ripete lo stesso like o la stessa offerta sullo stesso annuncio, in nessuna campagna. Separato per tipo. |
+| **No Repeat** | Global Interaction Ledger: lo stesso account non ripete lo stesso like, la stessa offerta o lo stesso messaggio sullo stesso annuncio, in nessuna campagna. Separato per tipo. |
 | **Smart Offer Engine** | Predefinito **+5% sul prezzo**; percentuale ± (sotto o sopra il prezzo), Risparmio / Interazione / Personalizzata, sconti e incrementi in % o €, minimo e massimo, fasce di prezzo, arrotondamenti (,99 · ,00 · multipli di 5 e 10, per eccesso/difetto/vicino), importi casuali. Anteprima sempre. |
 | **Suggerimenti AI** | Domande pertinenti all'annuncio (es. giacca → «Potresti indicarmi la misura delle spalle?»), più alternative, tono e lingua, cronologia. Regole locali o LLM (locale o esterno) a scelta. Si copiano: Vinted non ha commenti pubblici. |
 | **Mini-widget e FAB** | Sulle pagine Vinted: avanzamento in tempo reale, timer, pausa/riprendi/stop; menu rapido per scansionare l'armadio o aggiungere l'annuncio aperto. |
@@ -49,11 +50,11 @@
 
 | | |
 |---|---|
-| Versione | **1.3.1** |
+| Versione | **1.4.0** |
 | Browser | Chrome, Edge, Brave (Chromium ≥ 116). Provato in automatico su **Chrome 153**; Edge e Brave non sono stati provati in questo ciclo |
-| Verificato su Vinted reale | **No.** Tutto è stato provato su un Vinted finto (vedi [TEST_PLAN](docs/TEST_PLAN.md)). Gli endpoint di like, offerte e notifiche sono ricostruiti, non osservati: alla prima prova vera usa un solo annuncio |
+| Verificato su Vinted reale | **In parte**: scansione e like provati dall'autore su vinted.it. Offerte e notifiche sono ricostruite. **Messaggi privati: mai provati su Vinted reale**, solo sulla chat finta costruita con l'HTML vero (vedi [TEST_PLAN](docs/TEST_PLAN.md)): alla prima prova usa la modalità B e un tuo account |
 | Dipendenze a runtime | Nessuna. Nessun passaggio di build per usarla |
-| Test | 53 test unitari di logica + 3 test migrazioni IndexedDB (con `fake-indexeddb`) + 11 test DOM isolati; E2E con estensione caricata da eseguire in Chromium con estensioni abilitate |
+| Test | `npm test`: 70 test unitari (logica, migrazioni IndexedDB, divieto d'acquisto, messaggi) · `npm run test:e2e`: 28 scenari in Chrome con l'estensione caricata e un Vinted finto |
 
 ## Installazione
 
@@ -69,7 +70,7 @@
 1. **Accedi a Vinted** nel browser: Vintastic riconosce l'account da solo (legge solo l'id utente, mai token o password).
 2. **Scanner** › incolla l'URL di un armadio (`https://www.vinted.it/member/123…`) › Avvia. Oppure, sull'armadio, pulsante Vintastic › «Scansiona questo armadio».
 3. **Annunci** › filtra (es. «Ultimi 20» + «Ultimi 7 giorni») › seleziona › **Aggiungi a campagna**.
-4. **Campagne** › apri › **Anteprima e approvazione** (controlli, importi delle offerte) › **Avvia**.
+4. **Campagne** › apri › **Anteprima e approvazione** (controlli, importi delle offerte, testi dei messaggi) › **Avvia**.
 5. Segui l'avanzamento dal widget su Vinted, dal popup o dalla dashboard. Puoi chiudere tutto: la coda continua finché il browser è aperto.
 
 Le nuove campagne partono in **Simulazione**. Per la modalità reale togli la spunta nelle impostazioni della campagna e riapprova l'anteprima.
@@ -79,7 +80,8 @@ Le nuove campagne partono in **Simulazione**. Per la modalità reale togli la sp
 Tutto in **Impostazioni** (si salva subito, solo nel tuo browser):
 
 - **Timer**: secondi tra operazioni dello stesso annuncio, tra annunci, tra tipi (like → offerta…), minimo assoluto. Ogni campagna può avere i suoi.
-- **Limiti**: soglie giornaliere per like, offerte, commenti, per account e complessive; pause dopo 403/429. *Sono soglie tue, non limiti ufficiali di Vinted.*
+- **Messaggi**: destinatari autorizzati (ID o link del profilo, anche da un armadio scansionato; senza limite di numero), modalità predefinita A/B, attesa dell'invio manuale (fino a 4 minuti), messaggio predefinito e modelli.
+- **Limiti**: soglie giornaliere per like, offerte, messaggi (predefinito 10), commenti, per account e complessive; pause dopo 403/429. *Sono soglie tue, non limiti ufficiali di Vinted.*
 - **Notifiche**: categorie, durata, notifiche di sistema.
 - **FAB e widget**: attivi, dimensione, posizione.
 - **AI**: regole locali (predefinito) o endpoint compatibile OpenAI (Ollama/LM Studio in locale, o un servizio esterno).
@@ -108,7 +110,8 @@ Le release sono automatiche: scrivi titolo e descrizione, scegli il tag `vX.Y.Z`
 
 ## Sicurezza e privacy
 
-- **Divieto assoluto di acquisto**: nessun carrello, checkout o pagamento. Ogni richiesta verso Vinted passa da una lista chiusa (lettura, like, offerta, notifiche); tutto il resto viene bloccato prima di partire. Test dedicati a ogni versione.
+- **Divieto assoluto di acquisto**: nessun carrello, checkout o pagamento. Ogni richiesta verso Vinted passa da una lista chiusa (lettura, like, offerta, notifiche); tutto il resto viene bloccato prima di partire. Anche i clic dei messaggi («Chiedi info», Invia) passano dal guard. Test dedicati a ogni versione.
+- **Messaggi solo a chi vuoi tu**: elenco dei destinatari autorizzati, controllato nell'anteprima, dal motore e sulla pagina prima del clic. Nessun endpoint di messaggistica: solo i controlli visibili della chat. I testi non finiscono nei log né nel Support Bundle.
 - **Nessun aggiramento**: CAPTCHA, verifiche, 403/429 e restrizioni fermano tutto e passano la mano a te.
 - **Nessuna credenziale**: Vintastic non legge né salva password, codici, cookie o token (legge solo l'id numerico dell'utente). I token di sessione restano in memoria e non finiscono in log, backup o Support Bundle.
 - **Nessun server**: i dati restano nel browser. Uscite solo verso GitHub (aggiornamenti/link) e, se li attivi tu, AI esterna e Discord.
@@ -118,7 +121,10 @@ Dettagli: [SECURITY.md](SECURITY.md). Vintastic è un progetto indipendente, non
 ## FAQ
 
 <details><summary><b>Può comprare qualcosa per sbaglio?</b></summary>No. Non esiste nessun percorso d'acquisto nel codice, e un guard blocca qualsiasi richiesta non in lista prima che parta.</details>
-<details><summary><b>Perché i commenti non vengono inviati?</b></summary>Vinted non ha commenti pubblici sugli annunci: Vintastic genera i testi, tu li copi e li usi (per esempio in un messaggio).</details>
+<details><summary><b>Perché i commenti non vengono inviati?</b></summary>Vinted non ha commenti pubblici sugli annunci: Vintastic genera i testi, tu li copi e li usi. Per scrivere al venditore c'è l'operazione «Messaggio privato».</details>
+<details><summary><b>A chi può scrivere Vintastic?</b></summary>Solo ai venditori nell'elenco di Impostazioni › Messaggi. Se in una campagna c'è un annuncio di qualcun altro, il messaggio viene saltato senza aprire la chat (like e offerte su quell'annuncio restano). Con l'elenco vuoto le campagne con messaggi non partono.</details>
+<details><summary><b>Modalità A o B?</b></summary>A: Vintastic preme Invia e aspetta di vedere il messaggio nella conversazione. B: Vintastic apre la chat, scrive il testo e porta la scheda in primo piano; premi tu Invia (puoi anche cambiare il testo). Se in B non premi Invia entro il tempo scelto, il messaggio non parte e la campagna va in pausa. Per la prima prova usa B.</details>
+<details><summary><b>Un messaggio è «da verificare»?</b></summary>Vintastic ha premuto Invia (o il campo si è svuotato) ma il messaggio non è comparso nella conversazione. Non viene mai rimandato da solo: apri la chat su Vinted e indica in Recupero se c'è.</details>
 <details><summary><b>Funziona con la scheda in secondo piano o il browser chiuso?</b></summary>In secondo piano sì: Vintastic usa una sua scheda di Vinted, che può restare dietro le altre. A browser chiuso no; alla riapertura la coda si recupera.</details>
 <details><summary><b>Una operazione è «da verificare». Che faccio?</b></summary>Recupero › controlla su Vinted e indica se è stata eseguita. Per i like c'è la verifica automatica. Non viene mai ripetuta da sola.</details>
 <details><summary><b>Posso usare più account?</b></summary>Vintastic usa l'account con cui sei collegato a Vinted, riconosce quelli usati in passato e controlla che la sessione corrisponda alla campagna. Il cambio di account si fa su Vinted.</details>
@@ -138,7 +144,3 @@ Dettagli: [SECURITY.md](SECURITY.md). Vintastic è un progetto indipendente, non
 
 Progetto di **MashaUP**. Riusa idee e codice dei suoi progetti [Vinted_Relist](https://github.com/MashaUP/Vinted_Relist) (lettura dei token di sessione, gestione 403/429, esiti incerti, version checker, link centralizzati) e Keep_Watching (Health Center, cronologia eventi, statistiche locali). Nessuna libreria di terze parti a runtime. Licenza [MIT](LICENSE).
 
-
-## Messaggi privati nelle campagne (v1.3.0)
-
-Puoi aggiungere l'operazione **Messaggio privato** alle campagne. Vintastic apre l'annuncio, seleziona **Chiedi info**, compila la chat e verifica la presenza del messaggio inviato. In **Impostazioni → Messaggi** puoi scegliere la modalità automatica (predefinita) oppure la conferma manuale, e configurare il testo. La soglia iniziale è di 10 messaggi al giorno e si può modificare in Impostazioni → Limiti. Se Vinted richiede CAPTCHA/verifiche, la chat non si apre o l'esito non è verificabile, Vintastic non ripete automaticamente l'invio.

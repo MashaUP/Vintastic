@@ -26,6 +26,7 @@
   --s-comment: #2f9bd6;
   --s-scan: #b8871a;
   --s-offer: #8f6ef2;
+  --s-message: #14b8a6;
   --radius: 14px;
   --radius-sm: 9px;
   --shadow: 0 10px 30px rgba(0, 0, 0, .35);
@@ -51,6 +52,7 @@
   --s-comment: #1f7fb8;
   --s-scan: #8f6812;
   --s-offer: #6a47e8;
+  --s-message: #0f8f80;
   --shadow: 0 8px 24px rgba(40, 20, 90, .08);
   color-scheme: light;
 }

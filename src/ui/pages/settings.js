@@ -1,9 +1,10 @@
-/** Impostazioni: generali, timer, limiti, notifiche, overlay, AI, Discord, backup, dati, avanzate. */
+/** Impostazioni: generali, messaggi, timer, limiti, notifiche, overlay, AI, Discord, backup, dati, avanzate. */
 
 import { h, icon, rpc, toast, modal, downloadJson, confirmBox, term } from "../lib.js";
 import { MODULES } from "../../shared/constants.js";
 import { EXPORT_PARTS } from "../../shared/schema.js";
 import { startOnboarding } from "./onboarding.js";
+import { MESSAGE_MAX, MESSAGE_MODES, PLACEHOLDERS, cleanRecipients, parseRecipientId } from "../../shared/messages.js";
 
 const TABS = { general: "Generali", messages: "Messaggi", timers: "Timer", limits: "Limiti", notifications: "Notifiche", overlay: "FAB e widget", ai: "AI", discord: "Discord", backup: "Backup", data: "Dati", advanced: "Avanzate" };
 
@@ -26,16 +27,7 @@ export async function render(ctx) {
       h("div", { class: "row" }, h("button", { class: "btn", onclick: () => startOnboarding(ctx, true) }, icon("play", 14), "Riavvia la guida iniziale"),
         check(s.onboardingDone, (v) => save({ onboardingDone: v }), "Non mostrare la guida all'avvio"))),
 
-    messages: () => {
-      const text = h("textarea", { class: "input", rows: 4, maxlength: 1000, value: s.messages?.text || "", placeholder: "Scrivi il messaggio da inviare ai venditori" });
-      return h("div", { class: "grid" },
-        h("p", { class: "small muted" }, "I messaggi vengono inviati solo agli annunci che aggiungi esplicitamente a una campagna e per cui selezioni «Messaggio privato». Vintastic non invia messaggi a caso né aggira CAPTCHA o verifiche."),
-        h("label", { class: "field" }, "Modalità di invio", sel({ auto: "A — Automatica (predefinita)", manual: "B — Conferma manuale su Vinted" }, s.messages?.mode || "auto", (v) => save({ messages: { mode: v } })),
-        h("span", { class: "small muted" }, "Automatica: invia e verifica il messaggio. Manuale: compila la chat e attende che tu prema Invia su Vinted.")),
-        h("label", { class: "field" }, "Testo del messaggio", text),
-        h("div", { class: "row" }, h("span", { class: "small muted grow" }, `${(s.messages?.text || "").length}/1000 caratteri`), h("button", { class: "btn primary", onclick: () => save({ messages: { text: text.value.trim() } }, "Messaggio salvato") }, "Salva messaggio")),
-        h("div", { class: "callout warn small" }, h("b", {}, "Controllo invii. "), "La modalità manuale attende fino a 4 minuti. Se l'invio non può essere verificato, l'operazione non viene ripetuta automaticamente."));
-    },
+    messages: () => messagesPane(ctx, s, save),
 
     timers: () => h("div", { class: "grid" },
       h("p", { class: "small muted" }, "Gli intervalli regolano il ritmo per evitare richieste ravvicinate. Non servono a nascondere nulla: se Vinted segnala un limite (403, 429, CAPTCHA) tutto si ferma comunque."),
@@ -155,10 +147,92 @@ export async function render(ctx) {
     },
   };
 
+  const pane = await panes[tab]();
   return h("div", { class: "grid" },
     h("div", { class: "page-head" }, h("div", { class: "grow" }, h("h1", {}, "Impostazioni"), h("p", {}, "Tutto si salva subito, solo in questo browser."))),
     h("div", { class: "seg", role: "tablist" }, Object.entries(TABS).map(([k, l]) => h("button", { role: "tab", class: tab === k ? "on" : "", "aria-selected": String(tab === k), onclick: () => ctx.navigate(`#settings?tab=${k}`) }, l))),
-    h("div", { class: "card", role: "tabpanel" }, panes[tab]()));
+    h("div", { class: "card", role: "tabpanel" }, pane));
+}
+
+/**
+ * Messaggi privati: destinatari autorizzati, modalità, messaggio predefinito e modelli.
+ * I destinatari sono l'unica porta: a chi non è in elenco Vintastic non scrive mai.
+ */
+async function messagesPane(ctx, s, save) {
+  const m = s.messages || {};
+  const box = h("div", { class: "grid" });
+  const redraw = async () => { ctx.settings = await rpc("settings.get"); box.replaceChildren(...(await build(ctx.settings.messages || {}))); };
+  const saveM = async (patch, msg) => { await save({ messages: patch }, msg); await redraw(); };
+
+  async function build(m) {
+    const recipients = cleanRecipients(m.recipients);
+    const templates = m.templates || [];
+    const sellers = await rpc("listings.sellers").catch(() => []);
+
+    // --- destinatari
+    const rid = h("input", { class: "input", placeholder: "ID o link del profilo (vinted.it/member/123…)", "aria-label": "ID o link del profilo" });
+    const rlabel = h("input", { class: "input", placeholder: "Nome (es. Il mio account)", "aria-label": "Nome del destinatario", maxlength: 60 });
+    const add = async (id, label) => {
+      const clean = parseRecipientId(id);
+      if (!clean) return toast("ID non valido", "Incolla il link del profilo Vinted (…/member/123-nome) o il numero dell'account.", "warning");
+      if (recipients.some((r) => r.id === clean)) return toast("Già in elenco", "", "info");
+      await saveM({ recipients: [...recipients, { id: clean, label: label || "" }] }, "Destinatario aggiunto");
+    };
+    const pick = h("select", { class: "input", "aria-label": "Dagli armadi scansionati" }, h("option", { value: "" }, "Scegli da un armadio scansionato…"),
+      sellers.filter((x) => x.sellerId && x.sellerId !== "?" && !recipients.some((r) => r.id === String(x.sellerId))).map((x) => h("option", { value: x.sellerId }, `${x.login ? "@" + x.login : x.sellerId} (${x.count} annunci)`)));
+    pick.addEventListener("change", () => { const x = sellers.find((y) => String(y.sellerId) === pick.value); if (x) add(x.sellerId, x.login ? `@${x.login}` : ""); });
+
+    const recCard = h("div", { class: "grid" },
+      h("h3", {}, icon("user", 16), "Destinatari autorizzati"),
+      h("p", { class: "small muted", style: { margin: 0 } }, "I messaggi partono solo verso questi venditori: i tuoi account e quelli di chi ti ha dato l'ok. Un annuncio di chiunque altro viene saltato senza aprire la chat. Nessun limite di numero."),
+      recipients.length ? h("div", { class: "table-wrap" }, h("table", { class: "table" },
+        h("thead", {}, h("tr", {}, ["Nome", "ID account", ""].map((x) => h("th", {}, x)))),
+        h("tbody", {}, recipients.map((r) => {
+          const lab = h("input", { class: "input", value: r.label, maxlength: 60, "aria-label": `Nome di ${r.id}` });
+          lab.addEventListener("change", () => saveM({ recipients: recipients.map((x) => (x.id === r.id ? { ...x, label: lab.value.trim() } : x)) }, "Nome salvato"));
+          return h("tr", {}, h("td", {}, lab), h("td", { class: "small" }, h("a", { href: `${ctx.overview?.session?.origin || "https://www.vinted.it"}/member/${r.id}`, target: "_blank", rel: "noopener" }, r.id)),
+            h("td", {}, h("button", { class: "btn ghost sm", "aria-label": `Togli ${r.label || r.id}`, onclick: () => saveM({ recipients: recipients.filter((x) => x.id !== r.id) }, "Destinatario tolto") }, icon("trash", 14))));
+        })))) : h("div", { class: "callout warn small" }, h("b", {}, "Nessun destinatario. "), "Finché l'elenco è vuoto le campagne con messaggi non partono."),
+      h("div", { class: "row" }, h("span", { class: "grow" }, rid), h("span", { class: "grow" }, rlabel), h("button", { class: "btn primary", onclick: () => add(rid.value, rlabel.value.trim()) }, icon("plus", 14), "Aggiungi")),
+      sellers.length ? pick : null);
+
+    // --- modalità e testo predefinito
+    const wait = h("input", { class: "input", type: "number", min: 5, max: 240, value: m.manualWaitSeconds ?? 240, style: { width: "100px" } });
+    wait.addEventListener("change", () => saveM({ manualWaitSeconds: Number(wait.value) }));
+    const text = h("textarea", { class: "input", rows: 3, maxlength: MESSAGE_MAX, value: m.text || "" });
+    const cnt = h("span", { class: "small muted grow" }, `${(m.text || "").length}/${MESSAGE_MAX} caratteri`);
+    text.addEventListener("input", () => { cnt.textContent = `${text.value.trim().length}/${MESSAGE_MAX} caratteri`; });
+    const modeCard = h("div", { class: "grid" },
+      h("h3", {}, icon("send", 16), "Invio"),
+      h("label", { class: "field" }, "Modalità predefinita", sel(MESSAGE_MODES, m.mode === "manual" ? "manual" : "auto", (v) => saveM({ mode: v }))),
+      h("p", { class: "small muted", style: { margin: 0 } }, "Ogni campagna può scegliere la sua. In modalità B la scheda di Vinted passa in primo piano con il testo già scritto: controlli e premi Invia. In tutte e due il messaggio conta come inviato solo quando compare nella conversazione."),
+      h("label", { class: "field" }, "Attesa dell'invio manuale (B)", h("div", { class: "row" }, wait, h("span", { class: "muted small" }, "secondi, massimo 240 (4 minuti)"))),
+      h("label", { class: "field" }, "Messaggio predefinito", text),
+      h("div", { class: "row" }, cnt, h("button", { class: "btn primary", onclick: () => (text.value.trim() ? saveM({ text: text.value }, "Messaggio salvato") : toast("Il messaggio predefinito non può essere vuoto", "", "warning")) }, "Salva messaggio")));
+
+    // --- modelli
+    const tName = h("input", { class: "input", placeholder: "Nome del modello", maxlength: 60, "aria-label": "Nome del nuovo modello" });
+    const tText = h("textarea", { class: "input", rows: 2, maxlength: MESSAGE_MAX, placeholder: "Testo, anche con segnaposto: Ciao! {titolo} è ancora disponibile?", "aria-label": "Testo del nuovo modello" });
+    const tplCard = h("div", { class: "grid" },
+      h("h3", {}, icon("file", 16), `Modelli (${templates.length})`),
+      h("p", { class: "small muted", style: { margin: 0 } }, "Testi pronti da scegliere nelle campagne, da soli, a rotazione o a caso. Segnaposto: ", Object.entries(PLACEHOLDERS).map(([k, v]) => `${k} = ${v}`).join(" · "), "."),
+      ...templates.map((t) => {
+        const n = h("input", { class: "input", value: t.name, maxlength: 60, "aria-label": "Nome del modello" });
+        const x = h("textarea", { class: "input", rows: 2, maxlength: MESSAGE_MAX, value: t.text, "aria-label": `Testo di ${t.name}` });
+        return h("div", { class: "sugg", style: { flexDirection: "column", alignItems: "stretch" } }, n, x,
+          h("div", { class: "row" }, h("span", { class: "grow" }),
+            h("button", { class: "btn sm", onclick: () => (x.value.trim() ? saveM({ templates: templates.map((y) => (y.id === t.id ? { ...y, name: n.value, text: x.value } : y)) }, "Modello salvato") : toast("Testo vuoto", "", "warning")) }, "Salva"),
+            h("button", { class: "btn ghost sm", "aria-label": `Elimina ${t.name}`, onclick: () => saveM({ templates: templates.filter((y) => y.id !== t.id) }, "Modello eliminato") }, icon("trash", 14))));
+      }),
+      h("div", { class: "sugg", style: { flexDirection: "column", alignItems: "stretch" } }, tName, tText,
+        h("div", { class: "row" }, h("span", { class: "grow" }), h("button", { class: "btn primary sm", onclick: () => (tText.value.trim() ? saveM({ templates: [...templates, { id: `t${Date.now().toString(36)}`, name: tName.value, text: tText.value }] }, "Modello aggiunto") : toast("Scrivi il testo del modello", "", "warning")) }, icon("plus", 14), "Aggiungi modello"))));
+
+    return [recCard, modeCard, tplCard,
+      h("p", { class: "small muted" }, "I testi dei messaggi restano in questo browser: non finiscono nei log né nel Support Bundle. Un messaggio già inviato a un annuncio non viene mai ripetuto da solo; un invio non confermato va in «Da verificare».")];
+  }
+
+  box.replaceChildren(...(await build(m)));
+  return box;
 }
 
 function sel(opts, val, fn) {

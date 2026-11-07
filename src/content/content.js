@@ -1,8 +1,8 @@
 /**
  * Content script — punto d'ingresso sulle pagine Vinted.
  * Riceve i comandi del service worker (scansione, like, offerta, sessione,
- * notifiche) e annuncia lo stato della pagina. Like/offerte usano le API
- * ammesse da guard-core.js; i messaggi privati usano solo i controlli DOM visibili.
+ * notifiche, messaggi) e annuncia lo stato della pagina. Like e offerte usano le
+ * API ammesse da guard-core.js; i messaggi privati solo i controlli visibili della chat.
  */
 (() => {
   "use strict";
@@ -20,9 +20,13 @@
       if (VT.pageState().challenge) return { outcome: "captcha", sent: false, message: "Vinted chiede una verifica" };
       if (msg.op.type === "like") return VT.like(msg);
       if (msg.op.type === "offer") return VT.offer({ ...msg, op: msg.op });
-      if (msg.op.type === "message") return VT.message(msg);
       return { outcome: "unsupported", sent: false, message: `Operazione non supportata: ${msg.op.type}` };
     },
+    // Messaggio privato: fasi guidate dal motore (vedi engine.runMessage).
+    "vt:msgOpen": (msg) => VT.msgOpen(msg),
+    "vt:msgComposer": async () => VT.msgComposer(),
+    "vt:msgFill": (msg) => VT.msgFill(msg),
+    "vt:msgStatus": async () => VT.msgStatus(),
     "vt:verifyLike": (msg) => VT.verifyLike(msg),
     "vt:listingInfo": async (msg) => VT.listingFromPage(String(msg.id)),
     "vt:scan": (msg) => VT.scan(msg),
@@ -39,7 +43,8 @@
         if (e?.guard) { report(e, "policy"); return sendResponse({ outcome: "failed", sent: false, retryable: false, message: e.message, guard: true }); }
         report(e);
         // Un errore nel nostro codice durante una scrittura: esito incerto, mai "riuscito".
-        sendResponse({ outcome: msg.type === "vt:exec" ? "uncertain" : "failed", sent: msg.type === "vt:exec", message: `Errore interno: ${e?.message || e}` });
+        const write = msg.type === "vt:exec" || msg.type === "vt:msgFill";
+        sendResponse({ outcome: write ? "uncertain" : "failed", sent: write, message: `Errore interno: ${e?.message || e}` });
       });
     return true;
   });

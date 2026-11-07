@@ -11,53 +11,44 @@ import { ledgerKey, canInteract } from "./ledger.js";
 import { checkLimit } from "./timers.js";
 import { OP_PENDING } from "./states.js";
 import { stableStringify } from "./util.js";
+import { cleanRecipients, recipientCheck } from "./messages.js";
 
+/** Operazioni ancora da fare, così come sono state approvate. Il testo dei messaggi ne fa parte. */
 export function snapshotEntries(items) {
   return items.filter((i) => !i.removed).map((i) => ({
     itemId: i.id,
     listingId: i.listingId,
     price: i.listing?.price ?? null,
-    ops: i.ops.filter((o) => OP_PENDING.has(o.status)).map((o) => [o.type, o.amount ?? null, o.comment || null]),
+    ops: i.ops.filter((o) => OP_PENDING.has(o.status)).map((o) => (o.type === "message"
+      ? [o.type, null, null, o.text || null, o.mode || null]
+      : [o.type, o.amount ?? null, o.comment || null])),
   })).filter((e) => e.ops.length);
 }
 
-function snapshotPayload(items, settings = {}) {
+export function makeSnapshot(items, at = Date.now()) {
   const entries = snapshotEntries(items);
-  const hasPendingMessage = entries.some((entry) => entry.ops.some((op) => op[0] === "message"));
-  const messages = hasPendingMessage ? {
-    mode: settings.messages?.mode === "manual" ? "manual" : "auto",
-    text: String(settings.messages?.text || "").trim(),
-  } : null;
-  return { entries, messages };
+  return { at, hash: stableStringify(entries), count: entries.length };
 }
 
-export function makeSnapshot(items, at = Date.now(), settings = {}) {
-  const payload = snapshotPayload(items, settings);
-  return { at, hash: stableStringify(payload), count: payload.entries.length };
-}
+const opLabel = (o) => (o[0] === "message" ? `messaggio${o[4] ? ` (${o[4] === "manual" ? "B" : "A"})` : ""}` : `${o[0]}${o[1] != null ? ` ${o[1]} €` : ""}`);
 
 /** Differenze tra lo snapshot approvato e la coda attuale (solo operazioni ancora da fare). */
-export function diffSnapshot(snapshot, items, settings = {}) {
+export function diffSnapshot(snapshot, items) {
   if (!snapshot) return ["Nessuna anteprima approvata."];
   let parsed;
   try { parsed = JSON.parse(snapshot.hash); } catch { return ["Anteprima illeggibile: va riapprovata."]; }
-  // Compatibilità con gli snapshot precedenti alla versione con messaggi.
-  const approved = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.entries) ? parsed.entries : null);
+  // La 1.3.1 salvava { entries, messages }: si legge ancora.
+  const approved = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.entries) ? parsed.entries : null;
   if (!approved) return ["Anteprima illeggibile: va riapprovata."];
-  const current = snapshotPayload(items, settings);
-  const now = current.entries;
   const byItem = new Map(approved.map((e) => [e.itemId, e]));
   const diffs = [];
-  if (current.messages && stableStringify(parsed.messages || null) !== stableStringify(current.messages)) {
-    diffs.push("Impostazioni del messaggio cambiate (modalità o testo): riapri e approva l’anteprima.");
-  }
-  for (const e of now) {
+  for (const e of snapshotEntries(items)) {
     const a = byItem.get(e.itemId);
     if (!a) { diffs.push(`Nuovo elemento non approvato: annuncio ${e.listingId}`); continue; }
     if (a.price !== e.price) diffs.push(`Prezzo cambiato per l'annuncio ${e.listingId}: ${a.price} → ${e.price}`);
     // Le operazioni approvate possono essersi ridotte (eseguite); ne contano solo di nuove o cambiate.
     const approvedOps = new Set(a.ops.map((o) => JSON.stringify(o)));
-    for (const o of e.ops) if (!approvedOps.has(JSON.stringify(o))) diffs.push(`Operazione nuova o modificata sull'annuncio ${e.listingId}: ${o[0]}${o[1] != null ? ` ${o[1]} €` : ""}`);
+    for (const o of e.ops) if (!approvedOps.has(JSON.stringify(o))) diffs.push(`Operazione nuova o modificata sull'annuncio ${e.listingId}: ${opLabel(o)}`);
   }
   return diffs;
 }
@@ -98,11 +89,19 @@ export function validateCampaign(ctx) {
   }
   if (types.has("comment")) warnings.push("Vinted non ha commenti pubblici sugli annunci: i commenti diventano suggerimenti da copiare, non vengono inviati.");
   if (types.has("message")) {
-    const messageText = String(settings.messages?.text || "").trim();
-    if (!messageText) errors.push("Testo del messaggio privato vuoto: configurane uno in Impostazioni → Messaggi.");
-    else if (messageText.length > 1000) errors.push("Testo del messaggio privato troppo lungo: massimo 1000 caratteri.");
-    if (!["auto", "manual"].includes(settings.messages?.mode)) errors.push("Modalità messaggio non valida: scegli Automatica o Conferma manuale.");
-    warnings.push("I messaggi privati contattano direttamente i venditori. Controlla testo e destinatari prima di avviare la campagna.");
+    const msgs = pendingOps.filter((p) => p.op.type === "message");
+    const self = campaign?.accountId ? String(campaign.accountId).split("@")[0] : null;
+    if (!cleanRecipients(settings.messages?.recipients).length) {
+      errors.push("Nessun destinatario autorizzato per i messaggi: aggiungi gli account in Impostazioni › Messaggi.");
+    } else {
+      const refused = msgs.filter((p) => !recipientCheck(settings, p.item.listing?.sellerId, self).ok).length;
+      if (refused) warnings.push(`${refused} messaggi verso venditori non autorizzati: verranno saltati senza aprire la chat.`);
+    }
+    const noText = msgs.filter((p) => !p.op.text);
+    if (noText.length) errors.push(`${noText.length} messaggi senza testo valido: ${noText[0].op.msgError || "apri l'anteprima"}.`);
+    const manual = msgs.filter((p) => p.op.mode === "manual").length;
+    if (manual) infos.push(`${manual} messaggi in modalità B: Vintastic compila la chat e aspetta che tu prema Invia.`);
+    if (msgs.length - manual) infos.push(`${msgs.length - manual} messaggi in modalità A: invio automatico con verifica.`);
   }
 
   let dupes = 0;
@@ -128,7 +127,7 @@ export function validateCampaign(ctx) {
     }
   }
 
-  const diffs = diffSnapshot(campaign?.snapshot, items, settings);
+  const diffs = diffSnapshot(campaign?.snapshot, items);
   if (diffs.length) errors.push(`Serve una nuova approvazione dell'anteprima (${diffs.length} differenze).`);
 
   infos.push(`${live.length} annunci, ${pendingOps.length} operazioni da eseguire.`);

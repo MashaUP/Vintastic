@@ -74,8 +74,10 @@ class Env:
         return s if s.get("loggedIn") and s.get("userId") == USER_ID else None
 
     async def fast_settings(self):
+        s = await self.rpc("settings.get")
+        zero = {k: {"min": 0, "max": 0} for k in s["timers"]["transitions"]}
         await self.rpc("settings.save", {"patch": {"timers": {"betweenOps": {"min": 0, "max": 0}, "betweenItems": {"min": 0, "max": 0}, "minFloor": 1,
-            "transitions": {"like>offer": {"min": 0, "max": 0}, "like>comment": {"min": 0, "max": 0}, "comment>offer": {"min": 0, "max": 0}}}, "onboardingDone": True}})
+            "transitions": zero}, "onboardingDone": True}})
 
 
 async def start(fake=None, profile=None):

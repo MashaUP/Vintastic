@@ -23,6 +23,9 @@ export function makeOp(type, spec = {}) {
     amount: type === "offer" ? (spec.amount ?? null) : undefined,
     offerCfg: type === "offer" ? (spec.offerCfg || null) : undefined,
     comment: type === "comment" ? (spec.comment || "") : undefined,
+    // Messaggio: testo e modalità si calcolano nell'anteprima (engine.fillMessages).
+    text: type === "message" ? null : undefined,
+    mode: type === "message" ? null : undefined,
     requireConfirm: Boolean(spec.requireConfirm?.[type]),
     createdAt: now(),
   };
@@ -34,6 +37,7 @@ export function listingRef(l) {
     id: String(l.id), title: l.title || "", price: l.price ?? null, currency: l.currency || "EUR",
     url: l.url || null, photo: l.photo || null, sellerId: l.sellerId ? String(l.sellerId) : null,
     sellerLogin: l.sellerLogin || null, origin: l.origin || null, publishedAt: l.publishedAt ?? null,
+    brand: l.brand || null, size: l.size || null,
     status: l.status || "active",
   };
 }
@@ -46,6 +50,7 @@ export function buildItem(listing, spec, campaignId, position = 0) {
     listingId: String(listing.id),
     listing: listingRef(listing),
     position,
+    addSeq: position,           // ordine di aggiunta: non cambia con i riordini (rotazione dei messaggi)
     priority: Number(spec.priority || 0),
     ops: types.map((t) => makeOp(t, spec)),
     addedAt: now(),
@@ -125,7 +130,12 @@ export function editItemOps(item, patch) {
     if (!p) return o;
     if (!OP_PENDING.has(o.status)) { rejected = `L'operazione ${o.type} è ${o.status}: non si può modificare.`; return o; }
     if (p.remove) return { ...o, status: "cancelled", updatedAt: now() };
-    return { ...o, ...("amount" in p ? { amount: p.amount } : {}), ...("comment" in p ? { comment: p.comment } : {}), ...("offerCfg" in p ? { offerCfg: p.offerCfg, amount: null } : {}), ...("requireConfirm" in p ? { requireConfirm: Boolean(p.requireConfirm) } : {}), updatedAt: now() };
+    // Testo del messaggio scritto a mano per questo annuncio: resta fisso (textLocked);
+    // vuoto = torna a quello della campagna.
+    const text = "text" in p && o.type === "message"
+      ? (String(p.text || "").trim() ? { text: String(p.text).trim(), textLocked: true, msgSource: "manuale", msgError: null } : { text: null, textLocked: false })
+      : {};
+    return { ...o, ...("amount" in p ? { amount: p.amount } : {}), ...("comment" in p ? { comment: p.comment } : {}), ...("offerCfg" in p ? { offerCfg: p.offerCfg, amount: null } : {}), ...("requireConfirm" in p ? { requireConfirm: Boolean(p.requireConfirm) } : {}), ...text, updatedAt: now() };
   });
   return { item: hist({ ...item, ops }, "modificato"), rejected };
 }

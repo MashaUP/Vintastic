@@ -21,6 +21,7 @@
   let state = { overview: null, open: false, panel: null, hiddenWidget: false };
   let port = null;
   let tickTimer = null;
+  let lastPath = location.pathname;
 
   const CSS = `
   :host{all:initial}
@@ -134,7 +135,12 @@
     const ov = o?.overlay || {};
     [...root.children].forEach((c) => { if (c.tagName !== "STYLE") c.remove(); });
     const pos = ov.position || { right: 20, bottom: 20 };
-    const wrap = el("div", { class: "wrap", style: `right:${pos.right}px;bottom:${pos.bottom}px;transform:scale(${ov.scale || 1});transform-origin:bottom right` });
+    // Nella chat il pulsante Invia è in basso a destra: lì il FAB si sposta in alto per non coprirlo.
+    const chat = /^\/inbox(\/|$)/.test(location.pathname);
+    lastPath = location.pathname;
+    const wrap = el("div", { class: "wrap", style: chat
+      ? `right:${pos.right}px;top:84px;bottom:auto;transform:scale(${ov.scale || 1});transform-origin:top right`
+      : `right:${pos.right}px;bottom:${pos.bottom}px;transform:scale(${ov.scale || 1});transform-origin:bottom right` });
     const c = activeCampaign();
 
     if (ov.widget !== false && c && !state.hiddenWidget) put(wrap, widget(c, wrap));
@@ -219,9 +225,9 @@
   function addPanel(m, itemId) {
     const camps = (state.overview?.campaigns || []).filter((c) => !["completed", "stopped"].includes(c.status));
     const sel = el("select", { "aria-label": "Campagna" }, ...camps.map((c) => el("option", { value: c.id }, c.name)), el("option", { value: "__new" }, "+ Nuova campagna (simulazione)"));
-    const types = ["like", "offer", "comment"].map((t) => {
+    const types = ["like", "offer", "comment", "message"].map((t) => {
       const cb = el("input", { type: "checkbox", value: t, checked: t === "like" });
-      return { t, cb, label: el("label", {}, cb, { like: "Like", offer: "Offerta", comment: "Commento (suggerimento)" }[t]) };
+      return { t, cb, label: el("label", {}, cb, { like: "Like", offer: "Offerta", comment: "Commento (suggerimento)", message: "Messaggio privato (solo destinatari autorizzati)" }[t]) };
     });
     put(m, el("button", { onclick: () => { state.panel = null; render(); } }, el("span", { class: "ic" }, "←"), "Indietro"),
       el("div", { class: "form" }, el("div", { class: "muted" }, `Annuncio ${itemId}`), sel, ...types.map((x) => x.label),
@@ -319,6 +325,7 @@
   // Timer a vista: aggiorna solo il numero, senza ridisegnare tutto.
   tickTimer = setInterval(() => {
     if (!root) return;
+    if (location.pathname !== lastPath) render();      // navigazione interna di Vinted (es. apertura della chat)
     const c = activeCampaign();
     const t = root.querySelector("[data-timer]");
     if (t && c?.status === "running" && c.nextAt) t.textContent = fmt(c.nextAt - Date.now());

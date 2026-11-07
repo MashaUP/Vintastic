@@ -31,10 +31,10 @@ export async function render(ctx) {
         { name: "Like", color: "var(--s-like)", values: values("like") },
         { name: "Commenti", color: "var(--s-comment)", values: values("comment") },
         { name: "Offerte", color: "var(--s-offer)", values: values("offer") },
-        { name: "Messaggi", color: "var(--s-comment)", values: values("message") }])),
+        { name: "Messaggi", color: "var(--s-message)", values: values("message") }])),
       h("div", { class: "card" }, h("h3", {}, icon("scan", 16), "Annunci letti dalle scansioni"), lineChart(s.days, [{ name: "Annunci", color: "var(--s-scan)", values: values("scan") }])),
       h("div", { class: "card" }, h("h3", {}, icon("check", 16), "Riuscite e fallite"), lineChart(s.days, [
-        { name: "Riuscite", color: "var(--s-offer)", values: s.days.map((d) => (s.series.like[d] || 0) + (s.series.offer[d] || 0)) },
+        { name: "Riuscite", color: "var(--s-offer)", values: s.days.map((d) => (s.series.like[d] || 0) + (s.series.offer[d] || 0) + (s.series.message[d] || 0)) },
         { name: "Fallite", color: "var(--s-like)", values: values("failed") }])),
       h("div", { class: "card" }, h("h3", {}, icon("user", 16), "Attività per account"), barList(Object.entries(s.byAccount).map(([k, v]) => ({ label: k.split("@")[0], value: v })))),
       h("div", { class: "card" }, h("h3", {}, icon("zap", 16), "Attività per campagna"), barList(Object.entries(s.byCampaign).map(([k, v]) => ({ label: names.get(k) || k, value: v })).sort((a, b) => b.value - a.value).slice(0, 12))),

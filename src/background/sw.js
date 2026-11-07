@@ -27,6 +27,7 @@ import { computeStats } from "../shared/stats.js";
 import { freshCounters, checkLimit } from "../shared/timers.js";
 import { OP_TYPES, VERSION } from "../shared/constants.js";
 import { uid } from "../shared/util.js";
+import { sanitizeMessagesPatch } from "../shared/messages.js";
 
 session.installWebRequest();
 
@@ -240,7 +241,9 @@ async function rpc(method, p, sender) {
     case "settings.get": return store.getSettings();
     case "settings.save": {
       if ("killSwitch" in (p.patch || {})) throw new Error("Il Kill Switch si cambia solo dal suo pulsante.");
-      const s = await store.saveSettings(p.patch || {});
+      const patch = { ...(p.patch || {}) };
+      if (patch.messages) patch.messages = sanitizeMessagesPatch(patch.messages);
+      const s = await store.saveSettings(patch);
       await ensureAlarms();
       broadcast("vt:settings", { settings: s });
       return s;

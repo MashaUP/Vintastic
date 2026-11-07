@@ -39,6 +39,20 @@ class FakeVinted:
         self.price_override = {}
         self.item_api = True            # False: GET /items/:id non disponibile (come può succedere su Vinted reale)
         self.min_offer_ratio = None     # es. 0.9: offerte sotto il 90% del prezzo rifiutate
+        # Chat «Chiedi info» con l'HTML reale fornito (textarea#composerInput, [data-testid="arrow-right"]).
+        self.chat = {
+            "nav": "full",          # full: la chat è una pagina nuova (/inbox/…) · spa: si apre nella stessa pagina
+            "open_delay": 0,        # secondi prima che compaia il campo del messaggio
+            "ask_info": "on",       # on · off (pulsante assente) · disabled
+            "composer": True,       # False: chat senza #composerInput
+            "enable": True,         # False: il pulsante di invio resta disabilitato
+            "send": "ok",           # ok · slow (messaggio dopo 3 s) · clear-only (si svuota, nessun messaggio) · stuck · captcha
+            "old_bubble": None,     # testo di un messaggio identico già presente nella conversazione
+            "captcha_on_open": False,
+            "return_fail": False,   # dopo un invio la pagina dell'annuncio non si carica
+        }
+        self.messages = []          # (item_id, testo) messaggi arrivati al «server»
+        self.send_clicks = 0        # pressioni di Invia (anche senza messaggio arrivato)
 
     # ------------------------------------------------------------------ html
     def _page(self, body, title="Vinted"):
@@ -56,7 +70,54 @@ class FakeVinted:
         data = json.dumps({"item": {**it, "is_favourite": iid in self.favourites, "user_id": int(SELLER_ID)}})
         btn = f'<button data-testid="item-favourite" aria-pressed="{"true" if iid in self.favourites else "false"}" aria-label="Aggiungi ai preferiti">♥</button>'
         buy = '<button data-testid="item-buy-button">Acquista</button><button>Fai un\'offerta</button>'
-        return 200, self._page(f'<h1>{it["title"]}</h1>{btn}{buy}<script id="__item" type="application/json">{data}</script>', it["title"])
+        ask = self.ask_info_button(iid)
+        return 200, self._page(f'<h1>{it["title"]}</h1>{btn}{buy}{ask}<script id="__item" type="application/json">{data}</script>', it["title"])
+
+    # ------------------------------------------------------------------ chat «Chiedi info»
+    def chat_script(self, iid):
+        """JS della chat finta: stessa struttura dell'HTML reale di Vinted."""
+        cfg = json.dumps(self.chat)
+        return """<script>(() => {
+  const cfg = %s, iid = %d;
+  window.renderChat = (root) => {
+    if (cfg.captcha_on_open) { root.innerHTML = '<iframe src="https://geo.captcha-delivery.com/captcha/?x=1" title="captcha"></iframe>'; return; }
+    const old = cfg.old_bubble ? '<div class="web_ui__MessageBubble">' + cfg.old_bubble + '</div>' : '';
+    root.innerHTML = '<section class="thread">' + old + '</section>' + (cfg.composer ? `<div class="web_ui__InputBar">
+      <div class="web_ui__InputBar__input"><textarea id="composerInput" name="composerInput" placeholder="Scrivi un messaggio qui" data-testid="composer--input" class="web_ui__InputBar__value" autocomplete="off"></textarea></div>
+      <div class="web_ui__InputBar__suffix"><button type="button" disabled><span data-testid="arrow-right">➤</span></button></div></div>` : '');
+    const ta = root.querySelector('#composerInput'), btn = root.querySelector('.web_ui__InputBar__suffix button'), thread = root.querySelector('.thread');
+    if (!ta) return;
+    ta.addEventListener('input', () => { btn.disabled = !cfg.enable || !ta.value.trim(); });
+    const send = () => {
+      const text = ta.value.trim();
+      if (!text || btn.disabled) return;
+      fetch('/__fake/chat_click', { method: 'POST', body: JSON.stringify({ item: iid }) });
+      if (cfg.send === 'stuck') return;
+      if (cfg.send === 'captcha') { document.body.insertAdjacentHTML('beforeend', '<iframe src="https://geo.captcha-delivery.com/captcha/?x=2" title="captcha"></iframe>'); return; }
+      ta.value = ''; btn.disabled = true;
+      if (cfg.send === 'clear-only') return;
+      const add = () => fetch('/__fake/chat_send', { method: 'POST', body: JSON.stringify({ item: iid, text }) }).then(() => {
+        const b = document.createElement('div'); b.className = 'web_ui__MessageBubble'; b.innerHTML = text.split('\\n').map((l) => '<span>' + l + '</span>').join('<br>');
+        thread.append(b);
+      });
+      cfg.send === 'slow' ? setTimeout(add, 3000) : add();
+    };
+    btn.addEventListener('click', send);
+    ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+  };
+})();</script>""" % (cfg, iid)
+
+    def ask_info_button(self, iid):
+        if self.chat["ask_info"] == "off":
+            return ""
+        dis = " disabled" if self.chat["ask_info"] == "disabled" else ""
+        go = (f"location.href = '/inbox/{70000 + iid % 10000}?item={iid}';" if self.chat["nav"] == "full" else
+              f"history.pushState({{}}, '', '/inbox/{70000 + iid % 10000}'); setTimeout(() => renderChat(document.querySelector('main')), {int(self.chat['open_delay'] * 1000)});")
+        return (f'<button type="button" class="web_ui__Button"{dis} id="ask-info"><span class="web_ui__Button__content"><span class="web_ui__Button__label">Chiedi info</span></span></button>'
+                + self.chat_script(iid) + f"<script>document.getElementById('ask-info').addEventListener('click', () => {{ {go} }});</script>")
+
+    def inbox_page(self, iid):
+        return 200, self._page('<div id="chat"></div>' + self.chat_script(iid) + "<script>renderChat(document.getElementById('chat'));</script>", "Messaggi")
 
     def wardrobe_page(self):
         cards = "".join(f'<div data-testid="grid-item"><a href="{it["path"]}"><img alt="{it["title"]}, taglia M" src="{it["photo"]["url"]}"></a><p>{it["price"]["amount"]} €</p></div>' for it in list(self.items.values())[:24])
@@ -140,6 +201,22 @@ class FakeVinted:
                     break
                 if isinstance(action, int):
                     return await route.fulfill(status=action, content_type="application/json", body=json.dumps({"message": f"fake {action}"}))
+        if path_q.startswith("/__fake/chat_"):
+            if path_q == "/__fake/chat_click":
+                self.send_clicks += 1
+            else:
+                self.messages.append((int(body["item"]), body["text"]))
+            return await route.fulfill(status=200, content_type="application/json", body="{}")
+        m = re.match(r"^/inbox/\d+\?item=(\d+)", path_q)
+        if m:
+            if self.chat["open_delay"]:
+                import asyncio
+                await asyncio.sleep(self.chat["open_delay"])
+            status, html = self.inbox_page(int(m.group(1)))
+            return await route.fulfill(status=status, content_type="text/html", body=html)
+        if self.chat["return_fail"] and self.messages and re.match(r"^/items/\d+", path_q):
+            import asyncio
+            await asyncio.sleep(40)
         if path_q == "/robots.txt":
             return await route.fulfill(status=200, body="User-agent: *")
         if path_q.startswith("/api/v2/"):

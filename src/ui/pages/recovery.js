@@ -17,14 +17,14 @@ export async function render(ctx) {
       h("button", { class: "btn sm", onclick: () => rpc("session.openLogin", { origin: r.authPending.origin }) }, icon("external", 14), "Apri Vinted"),
       h("button", { class: "btn sm", onclick: async () => { await rpc("session.check", { origin: r.authPending.origin }); ctx.refresh(); } }, icon("refresh", 14), "Ricontrolla la sessione"))) : null,
     h("div", { class: "card" }, h("h3", {}, icon("lifebuoy", 16), `Da verificare (${r.verify.length})`),
-      h("p", { class: "small muted" }, "Operazioni il cui esito non è certo. Controlla su Vinted e dimmi com'è andata. Per i like c'è anche la verifica automatica."),
+      h("p", { class: "small muted" }, "Operazioni il cui esito non è certo. Controlla su Vinted e dimmi com'è andata. Per i like c'è anche la verifica automatica; per i messaggi apri la chat con il venditore su Vinted."),
       r.verify.length > 1 ? h("div", { class: "row", style: { marginBottom: "10px" } },
         r.verify.some((v) => v.op.type === "like") ? h("button", { class: "btn sm", onclick: async () => {
           if (!(await confirmBox("Tutti i like sono stati messi?", "Segna come eseguiti tutti i like da verificare. Fallo solo se li hai controllati su Vinted.", "Sì, sono tutti presenti"))) return;
           const x = await rpc("recovery.resolveAll", { type: "like", done: true }); toast(`${x.resolved} like segnati come eseguiti`, "", "success"); ctx.refresh();
         } }, icon("check", 14), "Tutti i like: eseguiti") : null,
         h("button", { class: "btn sm", onclick: async () => {
-          if (!(await confirmBox("Tutte eseguite?", "Segna come eseguite tutte le operazioni da verificare (like e offerte). Fallo solo se le hai controllate su Vinted.", "Sì, tutte eseguite"))) return;
+          if (!(await confirmBox("Tutte eseguite?", "Segna come eseguite tutte le operazioni da verificare (like, offerte e messaggi). Fallo solo se le hai controllate su Vinted.", "Sì, tutte eseguite"))) return;
           const x = await rpc("recovery.resolveAll", { done: true }); toast(`${x.resolved} operazioni segnate come eseguite`, "", "success"); ctx.refresh();
         } }, "Tutte: eseguite"),
         h("button", { class: "btn sm ghost", onclick: async () => {

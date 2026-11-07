@@ -1,30 +1,46 @@
 # Changelog
 
+Tutte le modifiche rilevanti di Vintastic. Formato [Keep a Changelog](https://keepachangelog.com/it/1.1.0/), versioni [Semantic Versioning](https://semver.org/lang/it/).
+
+## [1.4.0] - 2026-11-07
+
+Messaggi privati rifatti: destinatari autorizzati, più fonti per il testo, invio in due fasi e verifiche più rigorose. Le versioni 1.3.0 e 1.3.1 non vanno usate per i messaggi.
+
+### Aggiunto
+- **Destinatari autorizzati** (Impostazioni › Messaggi): i messaggi partono solo verso i venditori in elenco, senza limite di numero. Si aggiungono con l'ID, con il link del profilo o da un armadio scansionato. Un annuncio di un altro venditore viene saltato senza aprire la chat (controllo nell'anteprima, nel motore e sulla pagina prima del clic). Con l'elenco vuoto le campagne con messaggi non partono.
+- **Fonti del testo** per campagna: messaggio predefinito, un modello salvato, testo scritto ora, rotazione o scelta casuale (riproducibile) tra modelli, domanda sull'annuncio generata dalle regole locali. **Modelli** riutilizzabili e **segnaposto** `{titolo}` `{prezzo}` `{marca}` `{taglia}` `{venditore}`.
+- Testo **modificabile annuncio per annuncio** dalla coda; **modalità A/B per campagna** (o quella delle impostazioni).
+- L'anteprima mostra il testo esatto di ogni messaggio e la modalità; il testo approvato è quello che parte.
+- Modalità B: la scheda di Vinted passa in primo piano con il testo scritto e arriva la notifica «Premi Invia»; l'utente può cambiare il testo o inviare con Invio. Attesa configurabile fino a 4 minuti; se nessuno invia, niente parte e la campagna va in pausa.
+- Messaggi nel menu del FAB, colore dedicato nelle statistiche e nei grafici «Riuscite».
+
+### Corretto
+- **Invio in due fasi**: «Chiedi info» → attesa del campo `#composerInput` (stessa pagina o pagina nuova) → compilazione/invio → verifica. Prima, se la chat si apriva in una pagina nuova, il comando si perdeva.
+- **Divieto d'acquisto aggirato dai clic dei messaggi** (1.3.0): i clic usavano un evento sintetico che il controllo statico non vedeva. Ora «Chiedi info» e Invia passano da `VTGuard.safeClick`, con un test.
+- Il messaggio è confermato solo da un messaggio **nuovo** nella conversazione e con il campo svuotato; testi su più righe riconosciuti. Un messaggio identico già presente non conta.
+- Un messaggio inviato e verificato non diventa più «da verificare» se il ritorno all'annuncio non riesce: resta completato (con un avviso nei log) e il ledger impedisce doppioni.
+- Il journal segna il punto di non ritorno solo quando il testo sta per essere scritto: un crash prima (durante l'apertura della chat) rimette il messaggio in coda invece di bloccarlo «da verificare».
+- **Pagina cambiata durante un comando**: prima veniva considerato «non inviato» (rischio di doppione per like e offerte); ora solo un comando mai arrivato alla pagina è «non inviato», il resto è «da verificare».
+- **Ledger bloccato in «in corso»** dopo due tentativi non partiti di fila (es. due 429): l'annuncio non si poteva più usare. Ora torna allo stato di prima del tentativo.
+- L'anteprima dei messaggi mostrava «Preferito»; le transizioni dei timer verso e dal messaggio erano incomplete.
+- Testi dei messaggi, modelli e destinatari esclusi dal Support Bundle (prima c'erano, dentro le impostazioni).
+
+### Modificato
+- Le impostazioni dei messaggi non fanno più parte dello snapshot: ne fa parte il testo calcolato per ogni annuncio. Like e offerte approvati con le versioni precedenti restano validi.
+- Test: i test DOM isolati della 1.3.1 (che sostituivano `location` e `history`) sono sostituiti da 6 scenari end-to-end con l'estensione vera e la chat finta costruita sull'HTML reale.
+- Documentazione e changelog riordinati.
+
 ## [1.3.1] - 2026-11-07
 
 ### Corretto
-- Un tentativo di invio senza conferma del nuovo messaggio resta «da verificare», anche se il compositore si svuota o la chat mostra un CAPTCHA: non viene ritentato automaticamente.
-- La verifica confronta i nuovi messaggi con quelli già presenti, evitando di scambiare un bubble precedente con un invio appena effettuato.
-- Il ritorno all'annuncio deve essere confermato; in caso contrario l'operazione resta «da verificare».
-- L'approvazione della campagna include testo e modalità dei messaggi: modificarli rende necessaria una nuova anteprima e approvazione.
-
-### Test
-- Aggiunti test DOM isolati per le modalità automatica e manuale, invio incerto, duplicati, pulsanti disabilitati, CAPTCHA e ritorno all'annuncio.
+- Un tentativo di invio senza conferma resta «da verificare», senza ripetizioni automatiche.
+- Un messaggio precedente con lo stesso testo non viene scambiato per quello appena inviato.
+- Cambiare testo o modalità dopo l'approvazione richiede una nuova anteprima.
 
 ## [1.3.0] - 2026-11-07
 
 ### Aggiunto
-- Operazione di messaggio privato nelle campagne: apre «Chiedi info», compila la chat e verifica l'invio.
-- Modalità automatica predefinita e modalità con invio manuale selezionabile nelle Impostazioni.
-- Testo del messaggio configurabile, limite giornaliero dedicato e protezione anti-duplicazione tramite ledger.
-
-### Sicurezza e limiti
-- Nessun endpoint privato non documentato per i messaggi: interazione solo con i controlli visibili della chat.
-- CAPTCHA, verifiche, chat non aperta e invii non verificabili interrompono o mettono in verifica l'operazione.
-- In modalità manuale Vintastic attende l'invio dell'utente fino a 4 minuti.
-
-
-Tutte le modifiche rilevanti di Vintastic. Formato [Keep a Changelog](https://keepachangelog.com/it/1.1.0/), versioni [Semantic Versioning](https://semver.org/lang/it/).
+- Operazione «Messaggio privato» nelle campagne: «Chiedi info», compilazione della chat e verifica dell'invio, modalità automatica (predefinita) o con invio manuale, testo configurabile, soglia di 10 messaggi al giorno, protezione anti-duplicazione con il ledger.
 
 ## [1.2.0] - 2026-11-07
 
