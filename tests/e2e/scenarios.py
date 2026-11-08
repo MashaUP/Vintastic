@@ -47,9 +47,9 @@ async def t_install_and_ui(env):
     check(any("dashboard.html#onboarding" in u for u in tabs), f"onboarding non aperto all'installazione: {tabs}")
     page = await env.open_ui()
     s = await env.rpc("settings.get")
-    check(s["schema"] == 4 and s["killSwitch"] is False and s["campaignDefaults"]["addPosition"] == "start", "impostazioni predefinite")
+    check(s["schema"] == 5 and s["killSwitch"] is False and s["campaignDefaults"]["addPosition"] == "start" and s["timers"]["betweenItems"] == {"min": 10, "max": 25}, "impostazioni predefinite (timer bassi)")
     logs = await env.rpc("logs.query", {})
-    check(any("db_v3 → db_v4" in l["message"] for l in logs), "migrazione db registrata")
+    check(any("db_v4 → db_v5" in l["message"] for l in logs), "migrazione db registrata")
     routes = ["", "accounts", "scanner", "listings", "campaigns", "offers", "suggestions", "notifications", "stats", "logs", "health", "recovery", "settings", "help"]
     for r in routes:
         await page.goto(f"chrome-extension://{env.ext}/src/ui/dashboard.html#{r}")
@@ -71,7 +71,7 @@ async def t_install_and_ui(env):
     await page.evaluate("window.__vt.overview.version = '0.9.0'; window.__vt.refresh()")
     await page.wait_for_selector("text=Aggiornamento a metà", timeout=5000)
     check(not env.errors, f"errori JS: {env.errors}")
-    return "14 pagine, popup e side panel senza errori; onboarding aperto; db migrato a v4; avviso «motore vecchio»"
+    return "14 pagine, popup e side panel senza errori; onboarding aperto; db migrato a v5; avviso «motore vecchio»"
 
 
 async def t_onboarding_wizard(env):

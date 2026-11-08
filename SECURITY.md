@@ -8,6 +8,7 @@
    |---|---|---|
    | GET | `/wardrobe/:id/items?…` | lettura armadio |
    | GET | `/users/:id` | profilo (sessione) |
+   | GET | `/users/:id/followed_users` | account seguiti (menu Venditore, 2.1.0) |
    | GET | `/items/:id` | lettura annuncio |
    | GET | `/notifications?…` | elenco notifiche |
    | PUT | `/notifications/:id` | segna come letta |
@@ -43,7 +44,7 @@
 | `webRequest` | osservare (senza modificare) le intestazioni CSRF/anon-id delle richieste di Vinted |
 | `downloads` | salvare lo zip di un aggiornamento verificato |
 | `sidePanel` | pannello laterale |
-| `scripting` | reinserire il content script di Vintastic (gli stessi file del manifest) nella pagina della chat, se Vinted la carica senza; solo sulle pagine `www.vinted.*` già autorizzate. Nessun avviso all'installazione |
+| `scripting` | reinserire il content script di Vintastic (gli stessi file del manifest) nella pagina della chat, se Vinted la carica senza; **leggere** (mai cliccare) se «Chiedi info» ha già il suo gestore di clic, nel contesto della pagina (mondo `MAIN`), prima di premerlo con `VTGuard.safeClick`. Solo sulle pagine `www.vinted.*` già autorizzate. Nessun avviso all'installazione |
 | host `www.vinted.*` | content script e API |
 | host GitHub | aggiornamenti e link |
 | facoltativi: `discord.com`, `localhost`, `https://*/*` | richiesti solo se configuri Discord o un endpoint AI |

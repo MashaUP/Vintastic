@@ -1,11 +1,11 @@
 /**
  * Config Migration Engine.
  *
- * - DB_STEPS: passi versionati dello schema IndexedDB (db_v1 → … → db_v4).
+ * - DB_STEPS: passi versionati dello schema IndexedDB (db_v1 → … → db_v5).
  *   onupgradeneeded esegue in ordine tutti i passi da oldVersion+1 a DB_VERSION,
  *   dentro la stessa transazione di upgrade: se uno fallisce, IndexedDB annulla
  *   tutto e il database resta alla versione precedente (rollback automatico).
- * - SETTINGS_STEPS: passi delle impostazioni (schema 1 → … → 4). Prima di
+ * - SETTINGS_STEPS: passi delle impostazioni (schema 1 → … → 5). Prima di
  *   migrare, il service worker salva una copia (backup) delle impostazioni.
  * - migrateExport: porta un file di backup vecchio al formato attuale.
  */
@@ -112,6 +112,46 @@ export function stripCommentSettings(s) {
   return out;
 }
 
+// db_v4 → db_v5 (Vintastic 2.1.0): timer predefiniti più bassi nelle campagne non concluse.
+// Cambiano solo gli intervalli rimasti ESATTAMENTE ai vecchi valori predefiniti: quelli scelti a mano restano.
+DB_STEPS[5] = (db, tx) => {
+  const req = tx.objectStore("campaigns").openCursor();
+  req.onsuccess = () => {
+    const cur = req.result;
+    if (!cur) return;
+    const c = cur.value;
+    if (!["completed", "stopped"].includes(c?.status) && c?.timers) {
+      const timers = lowerOldTimers(c.timers);
+      if (timers !== c.timers) cur.update({ ...c, timers });
+    }
+    cur.continue();
+  };
+};
+
+/** Vecchi valori predefiniti dei timer (fino alla 2.0.0) e i nuovi. */
+export const OLD_TIMER_DEFAULTS = { betweenOps: { min: 8, max: 20 }, betweenItems: { min: 45, max: 120 }, transition: { min: 10, max: 25 }, minFloor: 3, retryDelays: [60, 300] };
+export const NEW_TIMER_DEFAULTS = { betweenOps: { min: 3, max: 8 }, betweenItems: { min: 10, max: 25 }, transition: { min: 3, max: 8 }, minFloor: 2, retryDelays: [30, 120] };
+
+const sameRange = (r, d) => Number(r?.min) === d.min && Number(r?.max) === d.max;
+
+/**
+ * Timer con i vecchi valori predefiniti portati ai nuovi. Restituisce lo stesso oggetto se non
+ * cambia niente (così chi chiama sa se salvare).
+ */
+export function lowerOldTimers(timers) {
+  if (!isPlainObject(timers)) return timers;
+  let changed = false;
+  const out = structuredClone(timers);
+  for (const key of ["betweenOps", "betweenItems"]) {
+    if (sameRange(out[key], OLD_TIMER_DEFAULTS[key])) { out[key] = { ...NEW_TIMER_DEFAULTS[key] }; changed = true; }
+  }
+  for (const [k, r] of Object.entries(out.transitions || {})) {
+    if (sameRange(r, OLD_TIMER_DEFAULTS.transition)) { out.transitions[k] = { ...NEW_TIMER_DEFAULTS.transition }; changed = true; }
+  }
+  if (Number(out.minFloor) === OLD_TIMER_DEFAULTS.minFloor) { out.minFloor = NEW_TIMER_DEFAULTS.minFloor; changed = true; }
+  return changed ? out : timers;
+}
+
 export function runDbUpgrade(db, tx, oldVersion, newVersion = DB_VERSION) {
   const applied = [];
   for (let v = oldVersion + 1; v <= newVersion; v++) {
@@ -145,6 +185,17 @@ export const SETTINGS_STEPS = {
   // schema 3 → 4 (2.0.0): via le chiavi dei commenti. La «Posizione» predefinita (In cima)
   // arriva dai valori predefiniti solo se l'utente non ne ha già scelta una.
   4: (s) => ({ ...stripCommentSettings(s), schema: 4 }),
+  // schema 4 → 5 (2.1.0): timer predefiniti più bassi. Cambiano solo i valori rimasti ai vecchi
+  // predefiniti (8–20 s, 45–120 s, 10–25 s, minimo 3 s, nuovi tentativi 60/300 s).
+  5: (s) => {
+    const out = { ...s, schema: 5 };
+    if (isPlainObject(s.timers)) out.timers = lowerOldTimers(s.timers);
+    const d = s.opRetry?.delaysSec;
+    if (Array.isArray(d) && d.length === 2 && d[0] === OLD_TIMER_DEFAULTS.retryDelays[0] && d[1] === OLD_TIMER_DEFAULTS.retryDelays[1]) {
+      out.opRetry = { ...s.opRetry, delaysSec: [...NEW_TIMER_DEFAULTS.retryDelays] };
+    }
+    return out;
+  },
 };
 
 export function migrateSettings(stored) {

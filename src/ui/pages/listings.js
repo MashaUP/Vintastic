@@ -3,14 +3,20 @@
 import { h, icon, rpc, toast, modal, fmtEuro, fmtDay, statusPill, downloadText } from "../lib.js";
 import { DATE_FIELDS, RANGES, TOP_N } from "../../shared/filters.js";
 import { OP_LABEL } from "../../shared/constants.js";
+import { clearHistoryDialog } from "../history-dialog.js";
 
 const state = { filters: { range: "all", dateField: "auto", topN: "", status: "all" }, offset: 0, sort: "date", dir: "desc", selected: new Set(), allIds: null };
 
 const LST = { active: ["Attivo", "good"], sold: ["Venduto", "bad"], reserved: ["Riservato", "warn"], hidden: ["Nascosto", ""], unavailable: ["Non disponibile", ""] };
 
 export async function render(ctx) {
-  if (ctx.route.query.seller) state.filters.sellerId = ctx.route.query.seller;
-  if (ctx.route.query.search) state.filters.search = ctx.route.query.search;
+  // Filtri dall'indirizzo (es. clic su un venditore): applicati una volta, poi comandano i menu.
+  const routeKey = JSON.stringify(ctx.route.query || {});
+  if (routeKey !== state.routeKey) {
+    state.routeKey = routeKey;
+    if (ctx.route.query.seller) { state.filters.sellerId = ctx.route.query.seller; state.offset = 0; }
+    if (ctx.route.query.search) { state.filters.search = ctx.route.query.search; state.offset = 0; }
+  }
   const [res, sellers, saved] = await Promise.all([
     rpc("listings.query", { filters: cleanFilters(), offset: state.offset, limit: 50, sort: state.sort, dir: state.dir, withIds: true }),
     rpc("listings.sellers"), rpc("filters.list"),
@@ -18,11 +24,31 @@ export async function render(ctx) {
   state.allIds = res.ids;
   const f = state.filters;
 
+  // I filtri si applicano subito: menu al cambio, campi di testo e numeri mentre scrivi (dopo una breve pausa).
   const input = (key, attrs = {}) => {
-    const el = h("input", { class: "input", value: f[key] ?? "", ...attrs });
-    el.addEventListener("change", () => { f[key] = el.value; state.offset = 0; ctx.refresh(); });
+    const el = h("input", { class: "input", value: f[key] ?? "", "data-fkey": key, ...attrs });
+    const apply = () => {
+      clearTimeout(state.typing);
+      if ((f[key] ?? "") === el.value) return;
+      f[key] = el.value; state.offset = 0;
+      state.focus = { key, start: el.selectionStart, end: el.selectionEnd };
+      ctx.refresh();
+    };
+    el.addEventListener("input", () => { clearTimeout(state.typing); state.typing = setTimeout(apply, 350); });
+    el.addEventListener("change", apply);
     return el;
   };
+  // Dopo il nuovo disegno il cursore resta nel campo in cui stavi scrivendo.
+  if (state.focus) {
+    const want = state.focus;
+    state.focus = null;
+    setTimeout(() => {
+      const el = document.querySelector(`[data-fkey="${want.key}"]`);
+      if (!el) return;
+      el.focus();
+      try { if (want.start != null) el.setSelectionRange(want.start, want.end); } catch { /* campi numerici */ }
+    }, 0);
+  }
   const select = (key, options, attrs = {}) => {
     const el = h("select", { class: "input", ...attrs }, Object.entries(options).map(([v, l]) => h("option", { value: v }, l)));
     el.value = f[key] ?? Object.keys(options)[0];
@@ -73,6 +99,9 @@ export async function render(ctx) {
     h("button", { class: "btn sm ghost", onclick: () => { state.selected.clear(); ctx.refresh(); } }, "Deseleziona"),
     h("span", { class: "grow" }),
     h("button", { class: "btn sm primary", disabled: !state.selected.size, onclick: () => addToCampaign(ctx) }, icon("zap", 14), "Aggiungi a campagna"),
+    h("button", { class: "btn sm", disabled: !state.selected.size, "data-needs-sel": "1", title: "Togli dallo storico like, offerte o messaggi di questi annunci, così le campagne li rifanno", onclick: async () => {
+      if (await clearHistoryDialog({ listingIds: [...state.selected], label: `${state.selected.size} annunci selezionati` })) ctx.refresh();
+    } }, icon("history", 14), "Azzera storico"),
     h("button", { class: "btn sm", onclick: () => exportCsv(res) }, icon("download", 14), "CSV"),
     h("button", { class: "btn sm danger", disabled: !state.selected.size, onclick: async () => {
       if (!confirm(`Togliere ${state.selected.size} annunci dall'archivio locale? Su Vinted non cambia niente.`)) return;
@@ -90,7 +119,7 @@ export async function render(ctx) {
 
   const rows = res.items.map((l) => {
     const cb = h("input", { type: "checkbox", checked: state.selected.has(l.id), "aria-label": `Seleziona ${l.title}` });
-    cb.addEventListener("change", () => { cb.checked ? state.selected.add(l.id) : state.selected.delete(l.id); selCount.textContent = String(state.selected.size); bulk.querySelectorAll(".btn.primary, .btn.danger").forEach((b) => { b.disabled = !state.selected.size; }); });
+    cb.addEventListener("change", () => { cb.checked ? state.selected.add(l.id) : state.selected.delete(l.id); selCount.textContent = String(state.selected.size); bulk.querySelectorAll(".btn.primary, .btn.danger, [data-needs-sel]").forEach((b) => { b.disabled = !state.selected.size; }); });
     const inter = l.interactions;
     const st = LST[l.status] || [l.status, ""];
     return h("tr", {},
@@ -103,7 +132,11 @@ export async function render(ctx) {
       h("td", { class: "small" }, l.publishedAt ? fmtDay(l.publishedAt) : l.photoAt ? h("span", { title: "Vinted non fornisce la data di pubblicazione: questa è la data della foto principale (stima)" }, `${fmtDay(l.photoAt)} `, h("span", { class: "muted" }, "(foto)")) : "—"),
       h("td", { class: "small" }, fmtDay(l.updatedAt), l.repostedAt ? h("div", { class: "muted" }, `ripubbl.: ${fmtDay(l.repostedAt)}`) : null),
       h("td", {}, h("span", { class: `pill ${st[1]}` }, st[0])),
-      h("td", {}, inter ? h("div", { class: "ops" }, ["like", "offer", "message"].filter((t) => inter[t]).map((t) => h("span", { class: `op-chip ${inter[t]}`, title: inter[t] }, OP_LABEL[t]))) : h("span", { class: "muted small" }, "Mai elaborato")),
+      h("td", {}, inter ? h("div", { class: "ops" }, ["like", "offer", "message"].filter((t) => inter[t]).map((t) => {
+        const locked = ["running", "verify"].includes(inter[t]);
+        return h("button", { type: "button", class: `op-chip ${inter[t]}`, style: { cursor: locked ? "default" : "pointer" }, title: locked ? `${inter[t]}: non azzerabile` : `${inter[t]} · clic: azzera dallo storico`, disabled: locked,
+          onclick: async () => { if (await clearHistoryDialog({ listingIds: [l.id], label: `«${(l.title || l.id).slice(0, 40)}»`, types: [t] })) ctx.refresh(); } }, OP_LABEL[t], locked ? "" : " ×");
+      })) : h("span", { class: "muted small" }, "Mai elaborato")),
       h("td", { class: "small" }, inter?.accounts?.map((a) => a.split("@")[0]).join(", ") || "—"),
       h("td", { class: "small" }, l.campaigns?.join(", ") || "—"));
   });

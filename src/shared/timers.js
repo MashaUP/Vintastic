@@ -23,7 +23,7 @@ const range = (r, fallback) => {
  */
 export function delayBefore(next, prev, sameItem, campaignTimers = {}, settingsTimers = {}, rng = Math.random) {
   if (!prev) return { seconds: 0, kind: "start", label: "Avvio" };
-  const floor = Number(settingsTimers.minFloor ?? 3);
+  const floor = Number(settingsTimers.minFloor ?? 2);
   const pickRange = (key) => campaignTimers?.[key] || settingsTimers?.[key];
   let r;
   let kind;
@@ -32,11 +32,11 @@ export function delayBefore(next, prev, sameItem, campaignTimers = {}, settingsT
     const tKey = `${prev.type}>${next.type}`;
     const trans = campaignTimers?.transitions?.[tKey] || settingsTimers?.transitions?.[tKey];
     const perType = campaignTimers?.perType?.[next.type];
-    if (trans) { r = range(trans, { min: 10, max: 20 }); kind = "transition"; label = `Tra ${tKey.replace(">", " → ")}`; }
-    else if (perType) { r = range(perType, { min: 10, max: 20 }); kind = "perType"; label = `Prima di ${next.type}`; }
-    else { r = range(pickRange("betweenOps"), { min: 8, max: 20 }); kind = "betweenOps"; label = "Tra operazioni dello stesso annuncio"; }
+    if (trans) { r = range(trans, { min: 3, max: 8 }); kind = "transition"; label = `Tra ${tKey.replace(">", " → ")}`; }
+    else if (perType) { r = range(perType, { min: 3, max: 8 }); kind = "perType"; label = `Prima di ${next.type}`; }
+    else { r = range(pickRange("betweenOps"), { min: 3, max: 8 }); kind = "betweenOps"; label = "Tra operazioni dello stesso annuncio"; }
   } else {
-    r = range(pickRange("betweenItems"), { min: 45, max: 120 });
+    r = range(pickRange("betweenItems"), { min: 10, max: 25 });
     kind = "betweenItems";
     label = "Tra annunci diversi";
   }

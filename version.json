@@ -1,11 +1,11 @@
 {
-  "version": "2.0.0",
-  "date": "2026-11-07",
-  "zip": "Vintastic-2.0.0.zip",
+  "version": "2.2.0",
+  "date": "2026-11-08",
+  "zip": "Vintastic-2.2.0.zip",
   "notes": [
-    "Campagne: un errore di un tipo (es. la chat che non si apre) non blocca più like e offerte; nuovi tentativi distanziati",
-    "«Chiedi info»: pulsante verificato su vinted.it, attesa della chat basata sullo stato della pagina, diagnosi dei casi",
-    "Nuovo: cicli per riprocessare gli annunci già completati, con cronologia e No Repeat per i duplicati",
-    "Tolti i commenti pubblici (Vinted non li ha); «Posizione» predefinita In cima; notifiche non più coperte"
+    "«Azzera storico»: togli like, offerte, messaggi (o un mix) dallo storico, dalla campagna o dagli Annunci, così le campagne li rifanno",
+    "Like già presente su Vinted: tolto e rimesso (si può scegliere «Lascialo» per campagna)",
+    "Filtri degli Annunci applicati subito, anche mentre scrivi",
+    "Nuova campagna: le sezioni che apri si mostrano da sole"
   ]
 }

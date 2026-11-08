@@ -306,9 +306,19 @@ async def t_msg_captcha_return(env):
     c, _ = await msg_campaign(env, 1, offset=2)
     await approve_start(env, c["id"])
     x = await wait_ops(env, c["id"], lambda ops, _: ops[0]["status"] == "verify", 90, "CAPTCHA dopo il clic → da verificare")
+    # La pagina della chat segnala la verifica con un piccolo ritardo (600 ms): si aspetta che arrivi,
+    # altrimenti la pagina pulita qui sotto potrebbe arrivare prima e il segnale dopo.
+    async def flagged():
+        ss = await env.rpc("session.get")
+        return ss if ss.get("challenge") else None
+    await env.wait_for(flagged, 15, 0.2, "verifica segnalata dalla pagina della chat")
     out.append("CAPTCHA dopo il clic: da verificare")
     await env.rpc("campaigns.stop", {"id": c["id"]})
     home = await env.login_vinted()          # una pagina senza verifica: la sessione torna pulita
+    async def clean():
+        ss = await env.rpc("session.get")
+        return ss if not ss.get("challenge") else None
+    await env.wait_for(clean, 20, 0.3, "sessione senza verifica dopo una pagina pulita")
     await home.close()
     env.fake.chat.update({"send": "ok", "captcha_on_open": True})
     clicks = env.fake.send_clicks
@@ -403,3 +413,36 @@ async def t_msg_newtab(env):
     logs = await env.rpc("logs.query", {"limit": 300})
     check(any("scheda nuova" in (l.get("message") or "") for l in logs), "registrato nei log")
     return "chat in una scheda nuova: trovata, messaggio verificato, scheda chiusa"
+
+
+async def t_msg_hydration(env):
+    """Come vinted.it (08/11/2026): «Chiedi info» compare prima di essere cliccabile. Vintastic aspetta
+    che lo diventi, ripete il clic se non ha effetto, funziona anche su una pagina senza React."""
+    await setup(env)
+    out = []
+
+    async def one(offset, chat, what, timeout=90):
+        env.fake.chat.update(chat)
+        early, ask = env.fake.early_clicks, env.fake.ask_clicks
+        c, _ = await msg_campaign(env, 1, offset=offset)
+        _, r = await approve_start(env, c["id"])
+        check(r["ok"], f"{what}: avvio {r}")
+        await finished(env, c["id"], timeout)
+        op = msg_ops(await env.campaign(c["id"]))[0]
+        check(op["status"] == "completed", f"{what}: {op['status']} · {op.get('error')}")
+        return env.fake.early_clicks - early, env.fake.ask_clicks - ask
+
+    e, a = await one(0, {"hydrate_ms": 1500}, "idratazione dopo 1,5 s")
+    check(e == 0 and a == 1, f"un solo clic, dopo l'idratazione: prima {e}, efficaci {a}")
+    out.append("pulsante cliccabile dopo 1,5 s: aspettato, 0 clic a vuoto, 1 clic")
+    e, a = await one(1, {"hydrate_ms": 7000}, "idratazione lenta (7 s)")
+    check(e == 0 and a == 1, f"idratazione lenta: prima {e}, efficaci {a}")
+    out.append("pulsante cliccabile dopo 7 s: aspettato")
+    e, a = await one(2, {"hydrate_ms": 1000, "dead_clicks": 1}, "primo clic ignorato")
+    check(a == 1, f"nuovo clic dopo uno senza effetto: efficaci {a}")
+    out.append("primo clic senza effetto: ripetuto dopo 5 s, chat aperta")
+    e, a = await one(3, {"react": False, "dead_clicks": 0}, "pagina senza React")
+    check(a == 1, f"senza React: efficaci {a}")
+    out.append("pagina senza React: si procede dopo 4 s, 1 clic")
+    check(len(env.fake.messages) == 4, f"4 messaggi arrivati: {env.fake.messages}")
+    return " · ".join(out)

@@ -31,6 +31,8 @@ export async function render(ctx) {
 
     timers: () => h("div", { class: "grid" },
       h("p", { class: "small muted" }, "Gli intervalli regolano il ritmo per evitare richieste ravvicinate. Non servono a nascondere nulla: se Vinted segnala un limite (403, 429, CAPTCHA) tutto si ferma comunque."),
+      h("p", { class: "small muted" }, "Predefiniti: 3–8 s sullo stesso annuncio, 10–25 s tra annunci, minimo 2 s. Valgono per le campagne nuove; una campagna può averne di propri."),
+      h("div", {}, h("button", { class: "btn ghost sm", onclick: () => save({ timers: { betweenOps: { min: 3, max: 8 }, betweenItems: { min: 10, max: 25 }, minFloor: 2, transitions: Object.fromEntries(Object.keys(s.timers.transitions).map((k) => [k, { min: 3, max: 8 }])) } }) }, "Ripristina i predefiniti")),
       h("label", { class: "field" }, "Tra operazioni dello stesso annuncio", range(s.timers.betweenOps, (r) => save({ timers: { betweenOps: r } }))),
       h("label", { class: "field" }, "Tra annunci diversi", range(s.timers.betweenItems, (r) => save({ timers: { betweenItems: r } }))),
       ...Object.entries(s.timers.transitions).map(([k, r]) => h("label", { class: "field" }, `Tra ${k.replace(">", " → ")}`, range(r, (v) => save({ timers: { transitions: { [k]: v } } })))),
@@ -47,7 +49,11 @@ export async function render(ctx) {
       h("label", { class: "field" }, "Errori di fila dello stesso tipo prima di sospendere quel tipo", num(s.maxConsecutiveFailures, (v) => save({ maxConsecutiveFailures: Math.max(1, v) }), { min: 1 })),
       h("label", { class: "field" }, "Errori di fila di qualsiasi tipo prima di mettere in pausa la campagna", num(s.maxConsecutiveFailuresAll ?? 6, (v) => save({ maxConsecutiveFailuresAll: Math.max(1, v) }), { min: 1 })),
       h("label", { class: "field" }, "Tentativi di un'operazione che non parte (poi «fallita»)", num(s.opRetry?.attempts ?? 3, (v) => save({ opRetry: { attempts: Math.max(1, Math.min(10, v)) } }), { min: 1, max: 10 })),
-      h("p", { class: "small muted" }, "Un problema di un tipo (per esempio la chat che non si apre) sospende solo quel tipo nella campagna: like e offerte continuano. Un'operazione che non parte si riprova dopo 1 e poi 5 minuti, intanto si eseguono le altre."),
+      h("label", { class: "field" }, "Attesa prima del 2° e del 3° tentativo", h("div", { class: "row" },
+        num(s.opRetry?.delaysSec?.[0] ?? 30, (v) => save({ opRetry: { delaysSec: [Math.max(5, v), s.opRetry?.delaysSec?.[1] ?? 120] } }), { min: 5 }),
+        num(s.opRetry?.delaysSec?.[1] ?? 120, (v) => save({ opRetry: { delaysSec: [s.opRetry?.delaysSec?.[0] ?? 30, Math.max(5, v)] } }), { min: 5 }),
+        h("span", { class: "muted small" }, "secondi"))),
+      h("p", { class: "small muted" }, "Un problema di un tipo (per esempio la chat che non si apre) sospende solo quel tipo nella campagna: like e offerte continuano. Un'operazione che non parte si riprova più tardi (predefinito 30 s e poi 2 minuti), intanto si eseguono le altre."),
       h("label", { class: "field" }, "Pause dopo un 403/429 (minuti, poi stop)", (() => { const i = h("input", { class: "input", value: s.backoffMinutes.join(", ") }); i.addEventListener("change", () => save({ backoffMinutes: i.value.split(",").map((x) => Number(x.trim())).filter((x) => x > 0).slice(0, 5) })); return i; })()),
       h("p", { class: "small muted" }, "Per cambiare una soglia mentre è raggiunta devi modificarla qui di proposito: non esistono scorciatoie per superarla.")),
 

@@ -179,10 +179,20 @@ export function modal(title, content, actions = [], { wide = false } = {}) {
         if (a.handler) { const r = await a.handler(); if (r === false) return; close(r ?? a.value); } else close(a.value);
       } }, a.label))) : null);
     const back = h("div", { class: "modal-back", onclick: (e) => { if (e.target === back) close(null); } }, box);
+    // Sezione espandibile aperta dall'utente: scorre da sola fino a mostrare le nuove opzioni.
+    const openedAt = Date.now();
+    box.addEventListener("toggle", (e) => {
+      if (e.target.tagName === "DETAILS" && e.target.open && Date.now() - openedAt > 400) revealInModal(e.target);
+    }, true);
     document.body.append(back);
     document.addEventListener("keydown", onKey);
     setTimeout(() => (box.querySelector("input, select, textarea, .modal-foot .btn.primary") || box.querySelector("button"))?.focus(), 30);
   });
+}
+
+/** Scorre il corpo della finestra quanto basta per mostrare tutto l'elemento (o almeno il suo inizio). */
+export function revealInModal(el) {
+  setTimeout(() => el.scrollIntoView({ block: "nearest", behavior: "smooth" }), 40);
 }
 
 export const confirmBox = (title, text, okLabel = "Conferma", danger = false) =>

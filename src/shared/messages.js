@@ -233,7 +233,9 @@ export function chatDiagnosis(d = {}) {
   const secs = Math.round((d.waitedMs || 0) / 1000);
   const parts = [];
   if (/\/items\/\d+/.test(url)) {
-    parts.push(d.askButton ? "il clic su «Chiedi info» non ha aperto la chat (la scheda è rimasta sull'annuncio)" : "la scheda è rimasta sull'annuncio");
+    const clicks = d.clicks > 1 ? ` (${d.clicks} clic)` : "";
+    parts.push(d.askButton ? `il clic su «Chiedi info» non ha aperto la chat${clicks}: la scheda è rimasta sull'annuncio` : "la scheda è rimasta sull'annuncio");
+    if (d.clickable && d.clickable.hydrated === false) parts.push(`il pulsante non è diventato cliccabile in ${Math.round((d.clickable.waitedMs || 0) / 1000)} s (Vinted non ha finito di caricare la pagina)`);
   } else if (/\/inbox\b/.test(url)) {
     if (d.noContent && !d.composer && d.textareas == null) parts.push(d.reinjected ? "chat aperta, ma Vintastic non risponde sulla pagina nemmeno dopo averlo reinserito" : "chat aperta, ma Vintastic non risponde sulla pagina della chat");
     else parts.push(`chat aperta (${url.replace(/^https?:\/\/[^/]+/, "")}) ma il campo #composerInput non c'è (${d.textareas ?? 0} campi di testo sulla pagina): struttura di Vinted cambiata?`);
@@ -242,6 +244,10 @@ export function chatDiagnosis(d = {}) {
   }
   if (d.status === "loading") parts.push("pagina ancora in caricamento");
   if (d.newTab) parts.push("la chat si è aperta in una scheda nuova");
-  if (d.visible === false) parts.push("la scheda era in background: attiva «Scheda in primo piano durante i messaggi» in Impostazioni › Messaggi");
+  if (d.visible === false) {
+    parts.push(d.focusAsked === false
+      ? "la scheda era in background: attiva «Scheda in primo piano durante i messaggi» in Impostazioni › Messaggi"
+      : "la scheda di Vinted non era visibile anche se Vintastic l'aveva portata in primo piano (finestra coperta da un'altra o tornata su un'altra scheda): lasciala visibile durante i messaggi");
+  }
   return `${parts.join("; ")} (attesa ${secs} s).`;
 }

@@ -31,6 +31,7 @@
     "vt:listingInfo": async (msg) => VT.listingFromPage(String(msg.id)),
     "vt:scan": (msg) => VT.scan(msg),
     "vt:session": (msg) => VT.session(msg),
+    "vt:following": (msg) => VT.following(msg),
     "vt:notifList": (msg) => VT.notifList(msg),
     "vt:notifRead": (msg) => VT.notifRead(msg),
   };

@@ -35,12 +35,12 @@ test("db_v1 → db_v2 → db_v3 conserva i dati e aggiunge store/indici", async 
   db.close();
 });
 
-test("installazione pulita: da 0 a 4 in un colpo", async () => {
+test("installazione pulita: da 0 a 5 in un colpo", async () => {
   const idb = new IDBFactory();
   let steps;
-  const db = await open(idb, 4, (d, t, old) => { steps = runDbUpgrade(d, t, old, 4); });
-  assert.equal(steps.length, 4);
-  assert.equal(db.version, 4);
+  const db = await open(idb, 5, (d, t, old) => { steps = runDbUpgrade(d, t, old, 5); });
+  assert.equal(steps.length, 5);
+  assert.equal(db.version, 5);
   db.close();
 });
 
@@ -76,13 +76,35 @@ test("db_v3 → db_v4: via i commenti senza corrompere campagne e code, ciclo 1,
   db.close();
 });
 
+test("db_v4 → db_v5: timer delle campagne aperte ai nuovi predefiniti, valori scelti a mano invariati", async () => {
+  const idb = new IDBFactory();
+  let db = await open(idb, 4, (d, t, old) => runDbUpgrade(d, t, old, 4));
+  const oldT = { betweenOps: { min: 8, max: 20 }, betweenItems: { min: 45, max: 120 }, transitions: { "like>offer": { min: 10, max: 25 } } };
+  await put(db, "campaigns", { id: "open", status: "running", timers: oldT });
+  await put(db, "campaigns", { id: "mine", status: "ready", timers: { betweenOps: { min: 1, max: 2 }, betweenItems: { min: 45, max: 120 }, transitions: { "like>offer": { min: 5, max: 6 } } } });
+  await put(db, "campaigns", { id: "done", status: "completed", timers: oldT });
+  await put(db, "campaigns", { id: "empty", status: "draft", timers: {} });
+  db.close();
+  let steps;
+  db = await open(idb, 5, (d, t, old) => { steps = runDbUpgrade(d, t, old, 5); });
+  assert.deepEqual(steps, ["db_v4 → db_v5"]);
+  const by = Object.fromEntries((await getAll(db, "campaigns")).map((c) => [c.id, c]));
+  assert.deepEqual(by.open.timers, { betweenOps: { min: 3, max: 8 }, betweenItems: { min: 10, max: 25 }, transitions: { "like>offer": { min: 3, max: 8 } } });
+  assert.deepEqual(by.mine.timers.betweenOps, { min: 1, max: 2 }, "scelta dell'utente");
+  assert.deepEqual(by.mine.timers.transitions["like>offer"], { min: 5, max: 6 }, "scelta dell'utente");
+  assert.deepEqual(by.mine.timers.betweenItems, { min: 10, max: 25 }, "rimasto al vecchio predefinito");
+  assert.deepEqual(by.done.timers, oldT, "campagna conclusa: storico invariato");
+  assert.deepEqual(by.empty.timers, {});
+  db.close();
+});
+
 test("rollback: un passo che fallisce lascia il database alla versione precedente", async () => {
   const idb = new IDBFactory();
   let db = await open(idb, 1, (d, t, old) => runDbUpgrade(d, t, old, 1));
   await put(db, "listings", { id: "keep", sellerId: "1" });
   db.close();
-  // db_v4 esiste dalla 2.0.0: il passo mancante ora è db_v5.
-  await assert.rejects(open(idb, 5, (d, t, old) => runDbUpgrade(d, t, old, 5)), /db_v5 mancante/);
+  // db_v5 esiste dalla 2.1.0: il passo mancante ora è db_v6.
+  await assert.rejects(open(idb, 6, (d, t, old) => runDbUpgrade(d, t, old, 6)), /db_v6 mancante/);
   db = await open(idb, 1, () => {});
   assert.equal(db.version, 1);
   assert.equal((await getAll(db, "listings"))[0].id, "keep");

@@ -63,7 +63,7 @@ Fino alla 1.4.0 un'operazione non partita tornava «in attesa» in testa alla co
 
 | Evento | Effetto |
 |---|---|
-| Operazione non partita per un motivo suo (pagina, chat, scheda) | `retryAfter` dopo 60 s e poi 300 s (`opRetry`); dopo 3 tentativi «fallita», ripetibile. Intanto si eseguono le altre |
+| Operazione non partita per un motivo suo (pagina, chat, scheda) | `retryAfter` dopo 30 s e poi 120 s (`opRetry`, impostabile; fino alla 2.0.0 60 e 300 s); dopo 3 tentativi «fallita», ripetibile. Intanto si eseguono le altre |
 | 3 errori di fila dello stesso tipo (`maxConsecutiveFailures`) | `campaign.suspended[tipo]`: solo quel tipo si ferma nella campagna, notifica; gli altri continuano. Riprendere azzera |
 | 6 errori di fila di tipi diversi (`maxConsecutiveFailuresAll`) | pausa `errors` della campagna (probabile problema generale) |
 | Modulo isolato dal circuit breaker | le sue operazioni aspettano, le altre partono; il validatore blocca solo se non resterebbe niente |
@@ -76,14 +76,27 @@ Riprocessare gli annunci già elaborati senza nuove campagne. `queue.refreshPlan
 
 Il ledger registra `cycleKey = campagna#ciclo` con ogni stato e lo conserva nello storico. `canInteract(entry, { cycleKey, newCycle })`: completata nello stesso ciclo → bloccata (`sameCycle`); completata altrove senza nuovo ciclo → bloccata (`done`, duplicato accidentale); nuovo ciclo voluto → ammessa (`newCycle`); `running`/`verify` → sempre bloccata.
 
+## Azzerare lo storico e like rimesso (2.2.0)
+
+`engine.clearHistory({ listingIds, types, campaignId })` (RPC `ledger.clear`): toglie dal `ledger` le voci dei tipi scelti per quegli annunci, tranne `running` e `verify`; poi `queue.resetLedgerSkipped` rimette `waiting` le operazioni `skipped` con `result.ledger` `done`/`sameCycle` nelle campagne aperte (e in quella da cui si azzera, anche se completata). Interfaccia in `src/ui/history-dialog.js`.
+
+Like con `c.likeExisting = "relike"` (predefinito `campaignDefaults.likeExisting`): `VT.like` con `op.relike`, se lo stato letto è «piace» → toggle, rilettura API = non piace, attesa, toggle, rilettura = piace. Ogni passo che non torna → `failed` ripetibile: il tentativo dopo riparte da una pagina ricaricata e rilegge lo stato, quindi non inverte mai un like a caso.
+
+## Menu Venditore e letture con una campagna in corso (2.1.0)
+
+`sellers.menu` (`src/background/sellers.js`, logica pura in `src/shared/sellers.js`) unisce tre fonti: gli account seguiti dall'account collegato (`GET /users/:id/followed_users`, a pagine, salvati in `meta` `following:<account>` e riletti se più vecchi di un giorno o con «Aggiorna seguiti»), i destinatari dei messaggi non seguiti, gli altri venditori con annunci scansionati. Un venditore senza annunci scansionati si può scegliere: la finestra avvia `scan.start` e aspetta `scan.get` prima di aggiungere.
+
+`tabs.withReaderTab`: senza campagne in esecuzione le letture usano la scheda di lavoro (`ensureAt`); con una campagna in esecuzione si apre una scheda in background (`reader`), si aspetta che Vintastic risponda (reinserito se manca) e la si chiude. Così una scansione o la lettura dei seguiti non sposta la scheda di lavoro a metà di un'operazione.
+
 ## Messaggi privati
 
 Logica pura in `src/shared/messages.js`, fasi in `engine.runMessage` e `adapter.js`.
 
 1. **Anteprima** (`fillMessageOps`): per ogni messaggio in attesa si controlla il destinatario (elenco di Impostazioni › Messaggi; un venditore estraneo → saltato, nessuna chat) e si calcolano testo e modalità dalla configurazione della campagna (`opsDefaults.message`: predefinito, modello, scritto ora, rotazione, casuale, suggerimento; segnaposto). Testo e modalità entrano nello snapshot: si invia ciò che è stato approvato. I testi scritti a mano per un annuncio (`textLocked`) restano.
 2. **Prima di toccare Vinted**: destinatario e testo ricontrollati (anche in simulazione, che non apre chat), ledger, soglia giornaliera.
-3. `vt:msgOpen` sulla pagina dell'annuncio: venditore della pagina = venditore dell'anteprima e autorizzato, annuncio attivo, clic su «Chiedi info» (`button[data-testid="ask-seller-button"]`, altrimenti l'etichetta esatta risalendo al pulsante). Nessun messaggio ancora.
-4. `engine.waitChat` aspetta la chat guardando lo stato reale: indirizzo e caricamento della scheda, schede nuove aperte dal clic (`openerTabId`), presenza di Vintastic (`vt:msgComposer`; se manca su una pagina caricata viene reinserito con `chrome.scripting`), campo `#composerInput`. Il limite (25 s senza cambiamenti, 60 s al massimo) riparte finché la pagina naviga. Su vinted.it il clic porta, con un caricamento completo, a `/inbox/<uuid>?referrer=…`. Se la chat non arriva, `messages.chatDiagnosis` spiega quale caso si è verificato. Per i messaggi la scheda di lavoro va in primo piano (`messages.focusTab`).
+3. `engine.waitClickable` (2.1.0): su vinted.it «Chiedi info» compare ~1,3 s dopo l'apertura della pagina ma diventa cliccabile solo dopo l'idratazione di React (~2,6–2,9 s, misurato l'08/11/2026); un clic prima va a vuoto. Con `chrome.scripting.executeScript` nel mondo `MAIN` (i content script, nel mondo isolato, non vedono le proprietà di React) si legge se il pulsante ha `__reactProps$…onClick`; si aspetta fino a 20 s. Pagina senza segni di Next.js/React: si prosegue 4 s dopo il caricamento completo. Nessun clic in questa fase.
+   `vt:msgOpen` sulla pagina dell'annuncio: venditore della pagina = venditore dell'anteprima e autorizzato, annuncio attivo, clic su «Chiedi info» (`button[data-testid="ask-seller-button"]`, altrimenti l'etichetta esatta risalendo al pulsante). Nessun messaggio ancora.
+4. `engine.waitChat` aspetta la chat guardando lo stato reale: indirizzo e caricamento della scheda, schede nuove aperte dal clic (`openerTabId`), presenza di Vintastic (`vt:msgComposer`; se manca su una pagina caricata viene reinserito con `chrome.scripting`), campo `#composerInput`. Il limite (25 s senza cambiamenti, 60 s al massimo) riparte finché la pagina naviga. Su vinted.it il clic porta, con un caricamento completo, a `/inbox/<uuid>?referrer=…`. Se la scheda resta sull'annuncio con il pulsante presente, `vt:msgOpen` si ripete dopo 5 s (al massimo 3 clic in tutto: aprire la chat non invia niente). Se la chat non arriva, `messages.chatDiagnosis` spiega quale caso si è verificato. Per i messaggi la scheda di lavoro va in primo piano (`messages.focusTab`), anche da una finestra ridotta a icona.
 5. Journal `sending` (punto di non ritorno), poi `vt:msgFill`: testo nel campo; in A clic su Invia, in B scheda in primo piano e notifica.
 6. `vt:msgStatus` ogni secondo (45 s in A, fino a 4 minuti in B): confermato solo se il campo è vuoto **e** compare un messaggio nuovo con quel testo (conteggio rispetto a prima dell'invio). Il clic dell'utente e il tasto Invio si registrano in fase di cattura, con il testo effettivo.
 7. Esito: confermato → completato, poi ritorno all'annuncio (se non riesce: avviso, il messaggio resta completato). Tentato ma non confermato, CAPTCHA dopo il clic, pagina persa → **da verificare**, mai ripetuto. In B senza invio e con il testo ancora nel campo → fallito ripetibile e messaggi sospesi nella campagna.

@@ -53,10 +53,19 @@ export async function navigate(tabId, url) {
   await chrome.tabs.update(tabId, { url });
 }
 
+/**
+ * Porta in primo piano una scheda di Vintastic: scheda attiva, finestra a fuoco e, se era ridotta
+ * a icona, di nuovo aperta (una finestra ridotta a icona resta «in background» per la pagina).
+ */
 export async function focus(tabId) {
   if (!(await isOwned(tabId))) return false;
-  const tab = await chrome.tabs.update(tabId, { active: true });
-  if (tab?.windowId != null) await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+  const tab = await chrome.tabs.update(tabId, { active: true }).catch(() => null);
+  if (!tab) return false;
+  if (tab.windowId != null && chrome.windows?.update) {
+    const win = await chrome.windows.get(tab.windowId).catch(() => null);
+    const patch = win?.state === "minimized" ? { state: "normal", focused: true } : { focused: true };
+    await chrome.windows.update(tab.windowId, patch).catch(() => {});
+  }
   return true;
 }
 
@@ -65,6 +74,68 @@ export async function closeOwned(tabId) {
   await chrome.tabs.remove(tabId).catch(() => {});
   await release(tabId);
   return true;
+}
+
+/**
+ * Esegue una lettura su una pagina di Vinted.
+ * separate = false: nella scheda di lavoro (come prima).
+ * separate = true (campagna in corso): in una scheda nuova in background, chiusa alla fine, così
+ * la scheda di lavoro della campagna non cambia pagina a metà di un'operazione.
+ */
+export async function withReaderTab(origin, url, fn, { separate = false, timeoutMs = 45_000 } = {}) {
+  if (!separate) {
+    const { tabId, page } = await ensureAt(origin, url, { timeoutMs });
+    return fn(tabId, page);
+  }
+  const tab = await chrome.tabs.create({ url, active: false });
+  await claim(tab.id, "reader", origin);
+  try {
+    // Si chiede alla pagina se è pronta (un annuncio «pronto» arrivato prima di mettersi in ascolto non si perde).
+    const end = Date.now() + timeoutMs;
+    let page = null;
+    let last = "";
+    let misses = 0;
+    let renavigated = false;
+    while (!page && Date.now() < end) {
+      await new Promise((r) => setTimeout(r, 800));
+      const t = await chrome.tabs.get(tab.id).catch(() => null);
+      if (!t) throw new Error("La scheda di lettura è stata chiusa.");
+      last = `${t.status} ${String(t.url || t.pendingUrl || "").split("?")[0]}`;
+      // Scheda in background non caricata (o pagina d'errore): la si carica di nuovo, una volta.
+      if ((t.status === "unloaded" || /^chrome-error:|^about:blank/.test(String(t.url || ""))) && !renavigated) {
+        renavigated = true;
+        await chrome.tabs.update(tab.id, { url }).catch(() => {});
+        continue;
+      }
+      if (t.status !== "complete") continue;
+      const pong = await sendToTab(tab.id, { type: "vt:ping" }, 3000).catch((e) => ({ error: e.message }));
+      if (pong?.ok) page = pong.page;
+      else {
+        last += ` · ${pong?.error || "nessuna risposta"}`;
+        // Pagina caricata ma Vintastic assente: prima la si ricarica, poi si inserisce Vintastic.
+        misses++;
+        if (misses === 3 && !renavigated) { renavigated = true; await chrome.tabs.update(tab.id, { url }).catch(() => {}); }
+        else if (misses === 6) await reinject(tab.id);
+      }
+    }
+    if (!page) throw Object.assign(new Error(`La pagina di Vinted non si è caricata in tempo (${last}).`), { code: "timeout", notSent: true });
+    if (page.challenge) throw new Error("Vinted chiede una verifica (CAPTCHA): aprila e completala tu.");
+    return await fn(tab.id, page);
+  } finally {
+    await closeOwned(tab.id);
+  }
+}
+
+/** Content script assente su una pagina già caricata: lo si reinserisce (stessi file del manifest). */
+export async function reinject(tabId) {
+  if (!chrome.scripting?.executeScript) return false;
+  try {
+    const files = chrome.runtime.getManifest().content_scripts?.[0]?.js || [];
+    await chrome.scripting.executeScript({ target: { tabId }, files });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Il content script annuncia che la pagina è pronta (con lo stato della pagina). */

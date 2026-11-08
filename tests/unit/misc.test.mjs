@@ -54,7 +54,7 @@ test("versioni e release GitHub", () => {
 test("migrazione impostazioni: v1 → v4 conservando i valori dell'utente", () => {
   const { settings, applied, from } = migrateSettings({ timers: { minDelay: 30, maxDelay: 60 }, limits: { daily: 25 }, notifications: false, overlay: true, theme: "light" });
   assert.equal(from, 1);
-  assert.deepEqual(applied, ["settings_v1 → settings_v2", "settings_v2 → settings_v3", "settings_v3 → settings_v4"]);
+  assert.deepEqual(applied, ["settings_v1 → settings_v2", "settings_v2 → settings_v3", "settings_v3 → settings_v4", "settings_v4 → settings_v5"]);
   assert.equal(settings.limits.perDay.comment, undefined, "niente chiavi dei commenti");
   assert.deepEqual(settings.timers.betweenItems, { min: 30, max: 60 });
   assert.equal(settings.limits.perDay.offer, 25);
@@ -67,7 +67,7 @@ test("migrazione impostazioni: v1 → v4 conservando i valori dell'utente", () =
 test("migrazione impostazioni 3 → 4: via i commenti, Posizione In cima solo se non scelta", () => {
   const old = { schema: 3, limits: { perDay: { like: 5, comment: 9, offer: 3 } }, timers: { transitions: { "like>comment": { min: 1, max: 2 }, "comment>offer": { min: 1, max: 2 }, "like>offer": { min: 7, max: 8 } } }, features: { comment: true, like: false }, moduleKill: { comment: true } };
   const { settings, applied } = migrateSettings(old);
-  assert.deepEqual(applied, ["settings_v3 → settings_v4"]);
+  assert.deepEqual(applied, ["settings_v3 → settings_v4", "settings_v4 → settings_v5"]);
   assert.equal(settings.limits.perDay.comment, undefined);
   assert.equal(settings.limits.perDay.like, 5, "valori dell'utente conservati");
   assert.deepEqual(settings.timers.transitions["like>offer"], { min: 7, max: 8 });
@@ -107,4 +107,18 @@ test("statistiche: le simulazioni non contano", () => {
   const st = computeStats({ opsLog: [{ at: now, type: "like", status: "completed" }, { at: now, type: "like", status: "completed", simulated: true }, { at: now, type: "offer", status: "failed" }] }, "7d", now);
   assert.equal(st.totals.likes, 1);
   assert.equal(st.totals.failed, 1);
+});
+
+test("migrazione impostazioni 4 → 5: timer più bassi, valori scelti a mano conservati", () => {
+  const old = { schema: 4, timers: { betweenOps: { min: 8, max: 20 }, betweenItems: { min: 60, max: 90 }, transitions: { "like>offer": { min: 10, max: 25 }, "offer>message": { min: 4, max: 9 } }, minFloor: 3 }, opRetry: { attempts: 3, delaysSec: [60, 300] } };
+  const { settings, applied } = migrateSettings(old);
+  assert.deepEqual(applied, ["settings_v4 → settings_v5"]);
+  assert.deepEqual(settings.timers.betweenOps, { min: 3, max: 8 });
+  assert.deepEqual(settings.timers.betweenItems, { min: 60, max: 90 }, "scelto a mano");
+  assert.deepEqual(settings.timers.transitions["like>offer"], { min: 3, max: 8 });
+  assert.deepEqual(settings.timers.transitions["offer>message"], { min: 4, max: 9 }, "scelto a mano");
+  assert.equal(settings.timers.minFloor, 2);
+  assert.deepEqual(settings.opRetry.delaysSec, [30, 120]);
+  assert.deepEqual(migrateSettings({ ...old, opRetry: { attempts: 2, delaysSec: [10, 20] } }).settings.opRetry.delaysSec, [10, 20], "ritardi scelti a mano");
+  assert.deepEqual(DEFAULT_SETTINGS.timers.betweenItems, { min: 10, max: 25 }, "installazione nuova: predefiniti bassi");
 });

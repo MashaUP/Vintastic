@@ -5,6 +5,7 @@
 
 import * as db from "./db.js";
 import * as tabs from "./tabs.js";
+import { campaignRunning } from "./sellers.js";
 import * as health from "./health.js";
 import * as session from "./session.js";
 import { log, activity } from "./logger.js";
@@ -39,11 +40,10 @@ export async function startScan({ url, tabId = null, maxItems = 5000 }) {
 }
 
 async function run(scan, userTabId, maxItems) {
-  let tabId = userTabId;
-  if (!tabId) {
-    ({ tabId } = await tabs.ensureAt(scan.origin, `${scan.origin}/member/${scan.sellerId}`));
-  }
-  const res = await tabs.sendToTab(tabId, { type: "vt:scan", scanId: scan.id, sellerId: scan.sellerId, maxItems }, 15 * 60_000);
+  const send = (tabId) => tabs.sendToTab(tabId, { type: "vt:scan", scanId: scan.id, sellerId: scan.sellerId, maxItems }, 15 * 60_000);
+  // Con una campagna in corso la scansione usa una scheda sua: la scheda di lavoro non cambia pagina.
+  const res = userTabId ? await send(userTabId)
+    : await tabs.withReaderTab(scan.origin, `${scan.origin}/member/${scan.sellerId}`, send, { separate: await campaignRunning() });
   if (res?.capability) await health.recordCapability(res.capability.name, res.capability.value, res.capability.detail);
   if (res?.outcome === "blocked" || res?.outcome === "captcha") {
     await health.recordFailure("scanner", res.message);

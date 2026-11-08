@@ -25,6 +25,9 @@ test("solo le richieste in lista passano", () => {
   assert.throws(() => assertRequestAllowed("DELETE", "/items/5"), PurchaseGuardError, "niente eliminazioni");
   assert.throws(() => assertRequestAllowed("POST", "/conversations/5/replies"), PurchaseGuardError, "niente messaggi");
   assert.throws(() => assertRequestAllowed("DELETE", "/notifications/5"), PurchaseGuardError, "il pulitore non elimina");
+  assert.equal(assertRequestAllowed("GET", "/users/129315368/followed_users?page=1&per_page=100"), "elenco account seguiti");
+  assert.throws(() => assertRequestAllowed("POST", "/users/129315368/followed_users"), PurchaseGuardError, "seguiti: solo lettura");
+  assert.throws(() => assertRequestAllowed("POST", "/followed_users/toggle"), PurchaseGuardError, "niente segui/smetti di seguire");
 });
 
 test("clic su pulsanti d'acquisto bloccati (tutte le lingue principali)", () => {

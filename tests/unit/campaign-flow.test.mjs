@@ -130,7 +130,9 @@ test("diagnostica della chat: distingue i casi", () => {
   assert.match(chatDiagnosis({ url: "https://www.vinted.it/inbox/abc", noContent: 6, textareas: null }), /Vintastic non risponde sulla pagina della chat/);
   assert.match(chatDiagnosis({ url: "https://www.vinted.it/inbox/abc", noContent: 6, reinjected: true }), /nemmeno dopo averlo reinserito/);
   assert.match(chatDiagnosis({ url: "https://www.vinted.it/inbox/abc", textareas: 1, composer: false }), /chat aperta \(\/inbox\/abc\) ma il campo #composerInput non c'è \(1 campi/);
-  assert.match(chatDiagnosis({ url: "https://www.vinted.it/inbox/abc", textareas: 0, visible: false }), /in background/);
+  assert.match(chatDiagnosis({ url: "https://www.vinted.it/inbox/abc", textareas: 0, visible: false, focusAsked: false }), /in background: attiva «Scheda in primo piano/);
+  assert.match(chatDiagnosis({ url: "https://www.vinted.it/inbox/abc", textareas: 0, visible: false, focusAsked: true }), /non era visibile anche se Vintastic l'aveva portata in primo piano/);
+  assert.match(chatDiagnosis({ url: "https://www.vinted.it/items/1-x", askButton: true, clicks: 3, clickable: { hydrated: false, waitedMs: 20000 }, waitedMs: 30000 }), /\(3 clic\).*non è diventato cliccabile in 20 s/);
   assert.match(chatDiagnosis({ url: "https://www.vinted.it/inbox/abc", textareas: 0, newTab: true, status: "loading" }), /ancora in caricamento.*scheda nuova/);
 });
 
@@ -174,4 +176,25 @@ test("«In cima»: il gruppo va sopra la coda e conserva il suo ordine", () => {
   assert.deepEqual(Q.executionOrder(again.items).map((i) => i.listingId).slice(0, 3), ["20", "21", "10"]);
   const end = Q.addItems(base, [L(30), L(31)], { types: ["like"] }, "c1", "end");
   assert.deepEqual(Q.executionOrder(end.items).map((i) => i.listingId), ["1", "2", "30", "31"]);
+});
+
+test("azzera storico: le operazioni saltate perché già fatte tornano in attesa, solo i tipi scelti", async () => {
+  const { resetLedgerSkipped } = await import("../../src/shared/queue.js");
+  const items = [
+    { id: "a", listingId: "1", ops: [
+      { id: "l", type: "like", status: "skipped", result: { ledger: "done" } },
+      { id: "o", type: "offer", status: "skipped", result: { ledger: "done" } },
+      { id: "m", type: "message", status: "skipped", result: { ledger: "verify" } },
+    ] },
+    { id: "b", listingId: "2", ops: [{ id: "l2", type: "like", status: "skipped", result: { ledger: "done" } }] },
+    { id: "c", listingId: "3", ops: [{ id: "l3", type: "like", status: "skipped", reason: "venduto", result: null }] },
+  ];
+  const r = resetLedgerSkipped(items, { listingIds: new Set(["1", "3"]), types: ["like", "message"] });
+  assert.equal(r.count, 1);
+  assert.equal(r.items[0].ops[0].status, "waiting");
+  assert.equal(r.items[0].ops[1].status, "skipped", "offerta non scelta");
+  assert.equal(r.items[0].ops[2].status, "skipped", "un esito da verificare non si sblocca");
+  assert.equal(r.items[1].ops[0].status, "skipped", "annuncio non scelto");
+  assert.equal(r.items[2].ops[0].status, "skipped", "saltata per un altro motivo");
+  assert.equal(resetLedgerSkipped(items, { listingIds: null, types: ["like"] }).count, 2, "tutti gli annunci");
 });

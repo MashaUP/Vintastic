@@ -4,10 +4,10 @@
  */
 
 export const APP_NAME = "Vintastic";
-export const VERSION = "2.0.0";
+export const VERSION = "2.2.0";
 export const REPO = "MashaUP/Vintastic";
 export const DB_NAME = "vintastic";
-export const DB_VERSION = 4;            // vedi migrations.js
+export const DB_VERSION = 5;            // vedi migrations.js
 export const EXPORT_SCHEMA = 1;          // formato dei file di backup
 
 /** Domini Vinted supportati (devono coincidere con manifest.json: lo controlla scripts/check.mjs). */
@@ -65,7 +65,7 @@ export const GLOSSARY = {
 
 /** Impostazioni predefinite. Ogni chiave nuova va aggiunta qui e in migrations.js se cambia forma. */
 export const DEFAULT_SETTINGS = {
-  schema: 4,
+  schema: 5,
   onboardingDone: false,
   theme: "dark",                    // dark | light
   layout: "full",                   // full | compact
@@ -77,16 +77,16 @@ export const DEFAULT_SETTINGS = {
     overlay: true, updates: true, discord: false, ai: false,
   },
   timers: {
-    betweenOps: { min: 8, max: 20 },          // secondi, stesso annuncio
-    betweenItems: { min: 45, max: 120 },      // secondi, annunci diversi
+    betweenOps: { min: 3, max: 8 },           // secondi, stesso annuncio
+    betweenItems: { min: 10, max: 25 },       // secondi, annunci diversi
     transitions: {                             // secondi, per coppia di tipi
-      "like>offer": { min: 10, max: 25 },
-      "like>message": { min: 10, max: 25 },
-      "offer>message": { min: 10, max: 25 },
-      "message>like": { min: 10, max: 25 },
-      "message>offer": { min: 10, max: 25 },
+      "like>offer": { min: 3, max: 8 },
+      "like>message": { min: 3, max: 8 },
+      "offer>message": { min: 3, max: 8 },
+      "message>like": { min: 3, max: 8 },
+      "message>offer": { min: 3, max: 8 },
     },
-    minFloor: 3,                               // nessun intervallo sotto questo valore
+    minFloor: 2,                               // nessun intervallo sotto questo valore
   },
   limits: {                         // soglie scelte dall'utente: NON sono limiti ufficiali di Vinted
     perDay: { like: 60, offer: 15, message: 10 },
@@ -97,8 +97,8 @@ export const DEFAULT_SETTINGS = {
   backoffMinutes: [5, 15, 45],      // pause dopo 403/429; poi stop
   maxConsecutiveFailures: 3,        // per tipo: 3 errori di fila sospendono SOLO quel tipo nella campagna
   maxConsecutiveFailuresAll: 6,     // errori di fila di qualsiasi tipo: pausa dell'intera campagna
-  opRetry: { attempts: 3, delaysSec: [60, 300] },   // un'operazione non partita si riprova più tardi, senza bloccare le altre
-  campaignDefaults: { addPosition: "start" },        // «Posizione» predefinita quando si aggiungono annunci: In cima
+  opRetry: { attempts: 3, delaysSec: [30, 120] },   // un'operazione non partita si riprova più tardi, senza bloccare le altre
+  campaignDefaults: { addPosition: "start", likeExisting: "relike" },        // «Posizione» predefinita quando si aggiungono annunci: In cima
   notifications: {
     enabled: true,
     system: true,                   // notifiche del sistema operativo

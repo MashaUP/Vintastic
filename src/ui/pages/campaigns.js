@@ -3,13 +3,15 @@
  * anche durante l'esecuzione, anteprima (Policy Validator + Snapshot), storico.
  */
 
-import { h, icon, rpc, toast, modal, confirmBox, fmtEuro, fmtDate, ago, countdown, statusPill, term } from "../lib.js";
+import { h, icon, rpc, toast, modal, confirmBox, fmtEuro, fmtDate, ago, countdown, statusPill, term, revealInModal } from "../lib.js";
+import { clearHistoryDialog } from "../history-dialog.js";
 import { OP_LABEL, OP_TYPES } from "../../shared/constants.js";
 import { SORTS } from "../../shared/filters.js";
 import { computeOffer, describeOffer, DEFAULT_OFFER } from "../../shared/offer.js";
 import { offerEditor } from "./offers.js";
 import { messageEditor } from "../message-editor.js";
 import { cycleSummary } from "../../shared/queue.js";
+import { sellerOptionLabel } from "../../shared/sellers.js";
 
 let detailTimer = null;
 let liveNodes = {};
@@ -66,9 +68,21 @@ export async function createDialog(ctx, preset = {}) {
   const chosen = new Set(preset.types || ["like"]);
   const orderList = h("ul", { class: "widget-cfg", style: { listStyle: "none", padding: 0 } });
   const drawOrder = () => orderList.replaceChildren(...order.map((t, i) => h("li", {},
-    h("label", { class: "check grow" }, h("input", { type: "checkbox", checked: chosen.has(t), onchange: (e) => { e.target.checked ? chosen.add(t) : chosen.delete(t); } }), OP_LABEL[t], t === "message" ? h("span", { class: "muted small" }, " — «Chiedi info», solo ai destinatari autorizzati") : null),
+    h("label", { class: "check grow" }, h("input", { type: "checkbox", checked: chosen.has(t), onchange: (e) => { e.target.checked ? chosen.add(t) : chosen.delete(t); onPick(t, e.target.checked); } }), OP_LABEL[t], t === "message" ? h("span", { class: "muted small" }, " — «Chiedi info», solo ai destinatari autorizzati") : null),
     h("button", { class: "btn ghost sm", "aria-label": "Prima", disabled: i === 0, onclick: () => { [order[i - 1], order[i]] = [order[i], order[i - 1]]; drawOrder(); } }, icon("up", 14)),
     h("button", { class: "btn ghost sm", "aria-label": "Dopo", disabled: i === order.length - 1, onclick: () => { [order[i + 1], order[i]] = [order[i], order[i + 1]]; drawOrder(); } }, icon("down", 14)))));
+  // Spuntando un'operazione si apre (e si mostra) la sezione con le sue opzioni.
+  const sections = {};
+  const onPick = (t, on) => {
+    if (t === "like") likeRow.style.display = on ? "" : "none";
+    const d = sections[t];
+    if (on && d) { d.open = true; revealInModal(d); }
+    if (on && t === "like") revealInModal(likeRow);
+  };
+  const likeExisting = h("select", { class: "input", style: { maxWidth: "260px" }, "aria-label": "Se il like c'è già" },
+    h("option", { value: "relike" }, "Toglilo e rimettilo"), h("option", { value: "keep" }, "Lascialo (conta come fatto)"));
+  likeExisting.value = preset.likeExisting || ctx.settings.campaignDefaults?.likeExisting || "relike";
+  const likeRow = h("div", { class: "row", style: { display: chosen.has("like") ? "" : "none" } }, h("span", { class: "small grow" }, "Se il like c'è già su Vinted"), likeExisting);
   drawOrder();
   const dry = h("input", { type: "checkbox", checked: true });
   const confirmOffer = h("input", { type: "checkbox", checked: false });
@@ -83,7 +97,7 @@ export async function createDialog(ctx, preset = {}) {
 
   const ok = await modal("Nuova campagna", h("div", { class: "grid" },
     h("label", { class: "field" }, "Nome", name),
-    h("div", {}, h("div", { class: "small muted" }, "Operazioni e ordine (combinabili)"), orderList),
+    h("div", {}, h("div", { class: "small muted" }, "Operazioni e ordine (combinabili)"), orderList, likeRow),
     h("label", { class: "check" }, dry, h("span", {}, term("Dry Run", "Simulazione"), ": esegue tutto senza inviare niente a Vinted (consigliata per la prima prova)")),
     h("label", { class: "check" }, confirmOffer, "Chiedi conferma prima di ogni offerta"),
     h("label", { class: "check" }, skipNotActive, "Salta gli annunci venduti, riservati o nascosti"),
@@ -91,8 +105,8 @@ export async function createDialog(ctx, preset = {}) {
     h("details", {}, h("summary", {}, "Timer di questa campagna (secondi)"),
       h("div", { class: "row", style: { marginTop: "8px" } }, h("span", { class: "small grow" }, "Tra operazioni dello stesso annuncio"), tOpsMin, "–", tOpsMax),
       h("div", { class: "row", style: { marginTop: "8px" } }, h("span", { class: "small grow" }, "Tra annunci diversi"), tItMin, "–", tItMax)),
-    h("details", { open: chosen.has("offer") }, h("summary", {}, "Regole delle offerte"), offerBox.node),
-    h("details", { open: chosen.has("message") }, h("summary", {}, "Messaggio privato"), msgBox.node)),
+    sections.offer = h("details", { open: chosen.has("offer") }, h("summary", {}, "Regole delle offerte"), offerBox.node),
+    sections.message = h("details", { open: chosen.has("message") }, h("summary", {}, "Messaggio privato"), msgBox.node)),
   [{ label: "Annulla", value: false }, { label: "Crea", value: true, cls: "primary" }], { wide: true });
   if (!ok) return null;
   if (!chosen.size) { toast("Scegli almeno un'operazione", "", "warning"); return null; }
@@ -106,6 +120,7 @@ export async function createDialog(ctx, preset = {}) {
     requireConfirm: { offer: confirmOffer.checked },
     skipRules: { notActive: skipNotActive.checked },
     sortMode: sortMode.value,
+    likeExisting: likeExisting.value,
     timers: { betweenOps: { min: +tOpsMin.value, max: +tOpsMax.value }, betweenItems: { min: +tItMin.value, max: +tItMax.value } },
     listingIds: preset.listingIds || [],
   });
@@ -200,7 +215,10 @@ async function detail(ctx, id) {
       h("button", { class: "btn sm", onclick: () => addListingsDialog(ctx, c) }, icon("plus", 14), "Aggiungi annunci"),
       h("button", { class: "btn sm", onclick: () => sortDialog(ctx, c) }, icon("shuffle", 14), "Ordina"),
       h("button", { class: "btn sm", disabled: !p.failed, onclick: () => act("campaigns.mutate", { action: "retry", args: {} }) }, icon("refresh", 14), "Ripeti falliti"),
-      h("button", { class: "btn sm", title: "Rielabora gli annunci già completati in un nuovo ciclo", onclick: () => cycleDialog(ctx, c, items, null) }, icon("history", 14), "Nuovo ciclo…")),
+      h("button", { class: "btn sm", title: "Rielabora gli annunci già completati in un nuovo ciclo", onclick: () => cycleDialog(ctx, c, items, null) }, icon("history", 14), "Nuovo ciclo…"),
+      h("button", { class: "btn sm", title: "Togli dallo storico like, offerte o messaggi degli annunci di questa campagna: invece di saltarli li rifà", onclick: async () => {
+        if (await clearHistoryDialog({ campaignId: c.id, label: `gli annunci di «${c.name}»` })) ctx.refresh();
+      } }, icon("trash", 14), "Azzera storico…")),
     order.length ? h("div", { class: "table-wrap" }, h("table", { class: "table" },
       h("thead", {}, h("tr", {}, ["#", "", "Annuncio", "Prezzo", "Operazioni", "Priorità", ""].map((x) => h("th", {}, x)))),
       h("tbody", {}, order.map((it, idx) => queueRow(ctx, c, it, idx, act))))) : h("div", { class: "empty" }, "Coda vuota: aggiungi annunci."),
@@ -387,9 +405,63 @@ async function sortDialog(ctx, c) {
   ctx.refresh();
 }
 
+/**
+ * Menu Venditore: account che segui su Vinted, poi i destinatari dei messaggi che non segui,
+ * poi gli altri venditori con annunci scansionati. Un venditore mai scansionato si può scegliere:
+ * con «Aggiungi» Vintastic legge prima il suo armadio (sola lettura).
+ */
+function sellerPicker(initial) {
+  let menu = initial;
+  const seller = h("select", { class: "input", "aria-label": "Venditore" });
+  const hint = h("div", { class: "small muted", style: { marginTop: "4px" } });
+  const rescan = h("input", { type: "checkbox" });
+  const rescanRow = h("label", { class: "check", style: { display: "none" } }, rescan, "Rileggi prima il suo armadio su Vinted (annunci nuovi)");
+  const entry = () => menu?.all?.find((e) => e.sellerId === seller.value) || null;
+  const groups = [["following", "Account che segui"], ["recipients", "Destinatari dei messaggi (non seguiti)"], ["scanned", "Altri venditori scansionati"]];
+  const update = () => {
+    const e = entry();
+    rescanRow.style.display = e && e.count ? "" : "none";
+    if (e) hint.textContent = e.count ? `${e.count} annunci scansionati${e.following ? " · lo segui" : ""}${e.recipient ? " · destinatario dei messaggi" : ""}` : "Annunci non ancora scansionati: con «Aggiungi» Vintastic legge prima il suo armadio (solo lettura).";
+    else hint.textContent = menu?.followingError ? `Account seguiti non letti: ${menu.followingError}` : menu?.followingAt ? `Account seguiti aggiornati ${ago(menu.followingAt)}.` : "";
+  };
+  const fill = () => {
+    const cur = seller.value;
+    seller.replaceChildren(h("option", { value: "" }, "Tutti i venditori (annunci già scansionati)"),
+      ...groups.filter(([k]) => menu?.[k]?.length).map(([k, label]) => h("optgroup", { label }, menu[k].map((e) => h("option", { value: e.sellerId }, sellerOptionLabel(e))))));
+    seller.value = [...seller.options].some((o) => o.value === cur) ? cur : "";
+    update();
+  };
+  seller.addEventListener("change", update);
+  const refresh = h("button", { class: "btn ghost sm", type: "button", title: "Rilegge da Vinted gli account che segui" }, icon("refresh", 14), "Aggiorna seguiti");
+  refresh.addEventListener("click", async () => {
+    refresh.disabled = true;
+    try { menu = await rpc("sellers.menu", { refresh: true }); fill(); toast(menu.followingError ? "Seguiti non aggiornati" : "Account seguiti aggiornati", menu.followingError || "", menu.followingError ? "warning" : "success"); } catch (e) { toast("Seguiti non aggiornati", e.message, "error"); } finally { refresh.disabled = false; }
+  });
+  fill();
+  return { seller, hint, rescan, rescanRow, refresh, entry };
+}
+
+/** Scansiona l'armadio di un venditore e aspetta la fine (con l'avanzamento in un avviso). */
+async function scanSeller(origin, e) {
+  const name = e.login ? `@${e.login}` : e.label || e.sellerId;
+  let scan;
+  try { scan = await rpc("scan.start", { url: `${origin}/member/${e.sellerId}` }); } catch (err) { toast("Scansione non avviata", err.message, "error", 9000); return false; }
+  toast(`Leggo l'armadio di ${name}…`, "Solo lettura. Poi aggiungo gli annunci alla coda.", "info", 6000);
+  const end = Date.now() + 10 * 60_000;
+  while (Date.now() < end) {
+    await new Promise((r) => setTimeout(r, 1500));
+    scan = await rpc("scan.get", { id: scan.id }).catch(() => scan);
+    if (scan && scan.status !== "running") break;
+  }
+  if (scan?.status !== "done") { toast(`Armadio di ${name} non letto`, (scan?.errors || []).slice(-1)[0] || "Scansione non completata", "error", 9000); return false; }
+  return true;
+}
+
 async function addListingsDialog(ctx, c) {
-  const sellers = await rpc("listings.sellers");
-  const seller = h("select", { class: "input" }, h("option", { value: "" }, "Tutti i venditori"), sellers.map((s) => h("option", { value: s.sellerId }, `${s.login || s.sellerId} (${s.count})`)));
+  const menu = await rpc("sellers.menu").catch(async () => ({ all: [], following: [], recipients: [], scanned: (await rpc("listings.sellers")).filter((x) => x.sellerId && x.sellerId !== "?").map((x) => ({ ...x, label: "", following: false, recipient: false })) }));
+  if (!menu.all?.length) menu.all = [...(menu.following || []), ...(menu.recipients || []), ...(menu.scanned || [])];
+  const picker = sellerPicker(menu);
+  const seller = picker.seller;
   const topN = h("select", { class: "input" }, [5, 10, 20, 50, 100].map((n) => h("option", { value: n }, `Ultimi ${n}`)), h("option", { value: "custom" }, "Numero personalizzato…"), h("option", { value: "" }, "Tutti"));
   topN.value = "20";
   const customN = h("input", { class: "input", type: "number", min: 1, max: 5000, value: 15, "aria-label": "Quanti annunci", style: { display: "none", marginTop: "6px" } });
@@ -401,7 +473,7 @@ async function addListingsDialog(ctx, c) {
   where.value = c.addPosition || ctx.settings.campaignDefaults?.addPosition || "start";
   const excl = h("input", { type: "checkbox", checked: true });
   const ok = await modal("Aggiungi annunci alla coda", h("div", { class: "grid" },
-    h("label", { class: "field" }, "Venditore", seller), h("div", { class: "row", style: { alignItems: "flex-start" } }, h("label", { class: "field grow" }, "Quanti (i più recenti)", topN, customN), h("label", { class: "field grow" }, "Periodo", range)),
+    h("div", { class: "field" }, h("div", { class: "row", style: { justifyContent: "space-between", alignItems: "center" } }, h("span", {}, "Venditore"), picker.refresh), seller, picker.hint, picker.rescanRow), h("div", { class: "row", style: { alignItems: "flex-start" } }, h("label", { class: "field grow" }, "Quanti (i più recenti)", topN, customN), h("label", { class: "field grow" }, "Periodo", range)),
     h("p", { class: "small muted", style: { margin: 0 } }, "«Più recenti»: per data di pubblicazione; se Vinted non la dà, per data della foto e poi nell'ordine dell'armadio su Vinted."),
     h("label", { class: "check" }, excl, "Escludi annunci su cui le operazioni scelte sono già state fatte"),
     h("div", {}, h("div", { class: "small muted" }, "Operazioni"), h("div", { class: "row" }, types.map(({ t, cb }) => h("label", { class: "check" }, cb, OP_LABEL[t])))),
@@ -412,6 +484,11 @@ async function addListingsDialog(ctx, c) {
   const chosen = types.filter((x) => x.cb.checked).map((x) => x.t);
   const n = topN.value === "custom" ? Math.max(1, Math.floor(Number(customN.value) || 0)) : topN.value;
   if (topN.value === "custom" && !(n > 0)) return toast("Scrivi quanti annunci", "", "warning");
+  // Venditore mai scansionato (o «Rileggi»): prima la lettura del suo armadio.
+  const chosenSeller = picker.entry();
+  if (chosenSeller && (!chosenSeller.count || picker.rescan.checked)) {
+    if (!(await scanSeller(c.origin || "https://www.vinted.it", chosenSeller))) return;
+  }
   const base = { sellerId: seller.value || undefined, topN: n, range: range.value, dateField: "auto", status: "active" };
   const res = await rpc("listings.query", { filters: { ...base, excludeDone: excl.checked ? chosen : undefined }, limit: 5000, withIds: true });
   if (!res.ids.length) {
@@ -439,7 +516,9 @@ function campaignSettings(ctx, c) {
     lo: num(t.transitions?.["like>offer"]?.min ?? st.transitions["like>offer"].min), loMax: num(t.transitions?.["like>offer"]?.max ?? st.transitions["like>offer"].max),
     dry: h("input", { type: "checkbox", checked: c.dryRun, disabled: c.status === "running" }),
     confirm: h("input", { type: "checkbox", checked: Boolean(c.opsDefaults?.requireConfirm?.offer) }),
+    likeExisting: h("select", { class: "input", style: { maxWidth: "260px" }, "aria-label": "Se il like c'è già" }, h("option", { value: "relike" }, "Toglilo e rimettilo"), h("option", { value: "keep" }, "Lascialo (conta come fatto)")),
   };
+  f.likeExisting.value = c.likeExisting || ctx.settings.campaignDefaults?.likeExisting || "relike";
   const offer = offerEditor(c.opsDefaults?.offerCfg || DEFAULT_OFFER);
   const msg = messageEditor(ctx.settings, c);
   return h("div", { class: "card" }, h("h3", {}, icon("settings", 16), "Impostazioni della campagna"),
@@ -447,6 +526,7 @@ function campaignSettings(ctx, c) {
       h("label", { class: "field" }, "Nome", f.name),
       h("label", { class: "check" }, f.dry, "Simulazione (", term("Dry Run"), ")", c.status === "running" ? h("span", { class: "muted small" }, " — metti in pausa per cambiarla") : null),
       h("label", { class: "check" }, f.confirm, "Chiedi conferma prima di ogni nuova offerta"),
+      h("div", { class: "row" }, h("span", { class: "small grow" }, "Se il like c'è già su Vinted"), f.likeExisting),
       h("div", { class: "row" }, h("span", { class: "small grow" }, "Secondi tra operazioni dello stesso annuncio"), f.opsMin, "–", f.opsMax),
       h("div", { class: "row" }, h("span", { class: "small grow" }, "Secondi tra annunci diversi"), f.itMin, "–", f.itMax),
       h("div", { class: "row" }, h("span", { class: "small grow" }, "Secondi tra like → offerta"), f.lo, "–", f.loMax),
@@ -457,7 +537,7 @@ function campaignSettings(ctx, c) {
       h("button", { class: "btn primary", onclick: async () => {
         try {
           await rpc("campaigns.update", { id: c.id, patch: {
-            name: f.name.value, dryRun: f.dry.checked,
+            name: f.name.value, dryRun: f.dry.checked, likeExisting: f.likeExisting.value,
             timers: { ...c.timers, betweenOps: { min: +f.opsMin.value, max: +f.opsMax.value }, betweenItems: { min: +f.itMin.value, max: +f.itMax.value }, transitions: { ...(c.timers?.transitions || {}), "like>offer": { min: +f.lo.value, max: +f.loMax.value } } },
             opsDefaults: { ...c.opsDefaults, offerCfg: offer.value(), message: msg.value(), requireConfirm: { ...(c.opsDefaults?.requireConfirm || {}), offer: f.confirm.checked } },
           } });

@@ -112,6 +112,8 @@ svg.chart { width: 100%; height: auto; display: block; }
 .op-chip.failed { border-color: rgba(239, 68, 68, .55); }
 .op-chip.verify { border-color: rgba(245, 158, 11, .6); }
 .op-chip.running { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+button.op-chip { color: var(--text); font: inherit; font-size: 12px; }
+button.op-chip:hover:not(:disabled) { border-color: var(--bad, #ef4444); }
 .op-chip.cancelled, .op-chip.skipped { opacity: .6; }
 .check-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
 .check-list li { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: start; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); }

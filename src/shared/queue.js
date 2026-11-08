@@ -232,6 +232,27 @@ export function retryFailed(items, ids = null) {
   return { items: out, count };
 }
 
+/**
+ * Dopo l'azzeramento dello storico: le operazioni saltate dal No Repeat («già fatta») tornano in
+ * attesa. listingIds null = tutti gli annunci.
+ */
+export function resetLedgerSkipped(items, { listingIds = null, types = [] } = {}) {
+  const kinds = new Set(types);
+  let count = 0;
+  const out = items.map((i) => {
+    if (i.removed || (listingIds && !listingIds.has(String(i.listingId)))) return i;
+    let local = 0;
+    const ops = i.ops.map((o) => {
+      if (o.status !== "skipped" || !kinds.has(o.type) || !["done", "sameCycle"].includes(o.result?.ledger)) return o;
+      local++;
+      return { ...o, status: "waiting", attempts: 0, retryAfter: null, result: null, error: null, startedAt: null, finishedAt: null, updatedAt: now() };
+    });
+    count += local;
+    return local ? hist({ ...i, ops }, "storico azzerato", `${local} di nuovo in attesa`) : i;
+  });
+  return { items: out, count };
+}
+
 export function progress(items) {
   const act = activeItems(items);
   const ops = act.flatMap((i) => i.ops);

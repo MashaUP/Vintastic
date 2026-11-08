@@ -32,8 +32,9 @@
 | **Filtri e Top N** | Ultimi 5/10/20/50/100 o un numero a scelta, ultime 24 ore / 2, 3, 7, 14, 30 giorni / intervallo, combinabili. Prezzo, stato, venditore, «escludi già fatti». Ordine ribaltabile (più recenti o meno recenti in cima). Filtri salvabili. Vinted non dà la data di pubblicazione: si usa la data della foto (stima) e poi l'ordine dell'armadio. |
 | **Campagne** | Like, offerte e messaggi privati, singoli o combinati, nell'ordine che scegli; timer configurabili (tra operazioni, tra annunci, tra tipi); conferma facoltativa per ogni offerta; simulazione (Dry Run). |
 | **Messaggi privati** | «Chiedi info» sull'annuncio, testo nella chat, invio **automatico (A)** o **premuto da te (B)**. Solo verso i **destinatari autorizzati** che scegli tu (i tuoi account, gli amici che ti hanno dato l'ok): agli altri venditori niente. Testo predefinito, modello, scritto ora, a rotazione o casuale tra modelli, domanda sull'annuncio; segnaposto `{titolo}` `{prezzo}` `{marca}` `{taglia}` `{venditore}`; modificabile annuncio per annuncio. Conta come inviato solo quando compare nella conversazione. |
+| **Menu Venditore** | Quando aggiungi annunci a una coda scegli tra gli **account che segui** su Vinted e i **destinatari dei messaggi**, anche se non li hai ancora scansionati: Vintastic legge prima il loro armadio. |
 | **Code dinamiche** | Aggiungi annunci e operazioni, rimuovi, modifica, cambia priorità, riordina (anche casuale, con anteprima) **mentre la campagna gira**. Le operazioni completate non si toccano. Ogni modifica è nello storico. |
-| **No Repeat** | Global Interaction Ledger: lo stesso account non ripete per sbaglio lo stesso like, la stessa offerta o lo stesso messaggio sullo stesso annuncio, in nessuna campagna. Separato per tipo. Un esito incerto non si ripete mai. |
+| **No Repeat** | Global Interaction Ledger: lo stesso account non ripete per sbaglio lo stesso like, la stessa offerta o lo stesso messaggio sullo stesso annuncio, in nessuna campagna. Separato per tipo. Un esito incerto non si ripete mai. Per rifare apposta: **Azzera storico** (dalla campagna, dagli Annunci o con un clic sul chip «Like ×»), solo like, solo offerte, solo messaggi o un mix; oppure **Nuovo ciclo**. Se il like c'è già su Vinted viene tolto e rimesso (o lasciato, a scelta per campagna). |
 | **Cicli** | Riprocessa gli annunci già elaborati (uno, alcuni, tutti) in un **nuovo ciclo**, quando vuoi: mattina, pomeriggio, giorno dopo. Prima vedi esattamente cosa si ripete, poi confermi e approvi. La cronologia dei cicli precedenti resta. |
 | **Errori isolati** | Un problema di un tipo (per esempio la chat che non si apre) sospende solo quel tipo nella campagna: like e offerte continuano. Un'operazione che non parte si riprova più tardi senza bloccare le altre. |
 | **Smart Offer Engine** | Predefinito **+5% sul prezzo**; percentuale ± (sotto o sopra il prezzo), Risparmio / Interazione / Personalizzata, sconti e incrementi in % o €, minimo e massimo, fasce di prezzo, arrotondamenti (,99 · ,00 · multipli di 5 e 10, per eccesso/difetto/vicino), importi casuali. Anteprima sempre. |
@@ -52,11 +53,11 @@
 
 | | |
 |---|---|
-| Versione | **2.0.0** |
+| Versione | **2.2.0** |
 | Browser | Chrome, Edge, Brave (Chromium ≥ 116). Provato in automatico su **Chrome 153**; Edge e Brave non sono stati provati in questo ciclo |
-| Verificato su Vinted reale | **In parte**: scansione e like provati dall'autore su vinted.it. Per «Chiedi info» sono verificati il pulsante, il clic e l'apertura della chat con il campo del messaggio (07/11/2026); **l'invio di un messaggio con Vintastic su Vinted reale non è ancora stato provato**. Offerte e notifiche sono ricostruite (vedi [TEST_PLAN](docs/TEST_PLAN.md)) |
+| Verificato su Vinted reale | **In parte**: scansione e like provati dall'autore su vinted.it. Per «Chiedi info» sono verificati il pulsante, il clic e l'apertura della chat con il campo del messaggio (07–08/11/2026), e misurato il ritardo con cui il pulsante diventa cliccabile (causa del problema della 2.0.0); **l'invio di un messaggio con Vintastic su Vinted reale non è ancora stato provato**. Lettura degli account seguiti provata su vinted.it (sola lettura). Offerte e notifiche sono ricostruite (vedi [TEST_PLAN](docs/TEST_PLAN.md)) |
 | Dipendenze a runtime | Nessuna. Nessun passaggio di build per usarla |
-| Test | `npm test`: 86 test unitari (logica, migrazioni IndexedDB, divieto d'acquisto, messaggi, cicli) · `npm run test:e2e`: 32 scenari in Chrome con l'estensione caricata e un Vinted finto |
+| Test | `npm test`: 92 test unitari (logica, migrazioni IndexedDB, divieto d'acquisto, messaggi, cicli, menu Venditore, storico) · `npm run test:e2e`: 35 scenari in Chrome con l'estensione caricata e un Vinted finto |
 
 ## Installazione
 
@@ -81,7 +82,7 @@ Le nuove campagne partono in **Simulazione**. Per la modalità reale togli la sp
 
 Tutto in **Impostazioni** (si salva subito, solo nel tuo browser):
 
-- **Timer**: secondi tra operazioni dello stesso annuncio, tra annunci, tra tipi (like → offerta…), minimo assoluto. Ogni campagna può avere i suoi.
+- **Timer**: secondi tra operazioni dello stesso annuncio (predefinito 3–8), tra annunci (10–25), tra tipi (like → offerta…, 3–8), minimo assoluto (2). Ogni campagna può avere i suoi.
 - **Messaggi**: destinatari autorizzati (ID o link del profilo, anche da un armadio scansionato; senza limite di numero), modalità predefinita A/B, attesa dell'invio manuale (fino a 4 minuti), messaggio predefinito e modelli.
 - **Limiti**: soglie giornaliere per like, offerte, messaggi (predefinito 10), per account e complessive; pause dopo 403/429. *Sono soglie tue, non limiti ufficiali di Vinted.*
 - **Avanzate**: errori di fila dello stesso tipo prima di sospendere quel tipo (3), di qualsiasi tipo prima della pausa (6), tentativi di un'operazione che non parte (3).

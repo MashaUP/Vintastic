@@ -34,6 +34,7 @@
   const ALLOWED = [
     { method: "GET", path: /^\/wardrobe\/\d+\/items\?[\w=&%.-]*$/, purpose: "lettura armadio" },
     { method: "GET", path: /^\/users\/\d+(\?[\w=&%.-]*)?$/, purpose: "profilo pubblico" },
+    { method: "GET", path: /^\/users\/\d+\/followed_users\?[\w=&%.-]*$/, purpose: "elenco account seguiti" },
     { method: "GET", path: /^\/items\/\d+(\/details)?$/, purpose: "lettura annuncio" },
     { method: "GET", path: /^\/notifications\?[\w=&%.-]*$/, purpose: "elenco notifiche" },
     { method: "PUT", path: /^\/notifications\/\d+$/, purpose: "segna notifica come letta" },

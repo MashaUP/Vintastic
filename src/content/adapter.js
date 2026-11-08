@@ -8,6 +8,7 @@
  * Endpoint usati (tutti nella lista di guard-core.js):
  *   GET  /wardrobe/:id/items     lettura armadio (stesso endpoint di Vinted_Relist)
  *   GET  /users/:id              profilo (sessione)
+ *   GET  /users/:id/followed_users  account seguiti (menu Venditore)
  *   GET  /items/:id              lettura annuncio (se Vinted la consente)
  *   POST /user_favourites/toggle like
  *   POST /conversations + POST /transactions/:id/offer_requests   offerta
@@ -122,16 +123,31 @@
 
   // ---------------------------------------------------------------- like
 
-  VT.like = async ({ listing }) => {
+  VT.like = async ({ listing, op }) => {
     const id = String(listing.id);
     const before = await readItem(id);
     if (before.error) return asOutcome(before.error);
     if (before.notFound) return { outcome: "notFound", sent: false, message: "Annuncio non più disponibile" };
     if (before.status && before.status !== "active") return { outcome: "unavailable", sent: false, message: `Annuncio ${before.status}`, listing: { status: before.status } };
+    let relaid = false;
     if (before.isFavourite === true) {
-      return { outcome: "already", sent: false, message: "Like già presente su Vinted", capability: { name: "favourite", value: true, detail: `stato letto da ${before.source}` } };
-    }
-    if (before.isFavourite !== false) {
+      if (!op?.relike) {
+        return { outcome: "already", sent: false, message: "Like già presente su Vinted", capability: { name: "favourite", value: true, detail: `stato letto da ${before.source}` } };
+      }
+      // Like già presente e campagna con «toglilo e rimettilo»: prima si toglie e si controlla che sia tolto.
+      // Ogni tentativo riparte da una pagina ricaricata e rilegge lo stato: ripetere non inverte mai un like a caso.
+      const off = await api().request("POST", "/user_favourites/toggle", { body: { type: "item", user_favourites: [Number(id)] }, referrer: location.href });
+      if (!off.ok) {
+        if (off.kind === "network" || off.kind === "server") return { outcome: "failed", sent: false, retryable: true, message: `Like da rimettere: non tolto (${off.message}). Al prossimo tentativo lo stato si rilegge.` };
+        return asOutcome(off);
+      }
+      await sleep(1200);
+      const mid = await readItem(id, { apiOnly: true });
+      if (mid.isFavourite === true) return { outcome: "failed", sent: false, retryable: true, message: "Like da rimettere: Vinted non l'ha tolto. Si riprova." };
+      if (mid.isFavourite !== false) return { outcome: "failed", sent: false, retryable: true, message: "Like tolto ma stato non rileggibile: non rimesso per non sbagliare. Al prossimo tentativo si rilegge e si rimette." };
+      await sleep(1500);
+      relaid = true;
+    } else if (before.isFavourite !== false) {
       // Il toggle di Vinted inverte lo stato: senza conoscerlo rischieremmo di TOGLIERE un like.
       return { outcome: "failed", sent: false, retryable: true, message: "Stato del preferito non leggibile: like non inviato per non rischiare di toglierlo", capability: { name: "favourite", value: null, detail: "stato iniziale non leggibile" } };
     }
@@ -145,7 +161,7 @@
     // Solo l'API dice lo stato attuale: i dati incorporati nella pagina sono quelli del
     // caricamento (prima del like) e direbbero sempre «non piace».
     const after = await readItem(id, { apiOnly: true });
-    if (after.isFavourite === true) return { outcome: "done", sent: true, message: "Like confermato", capability: { name: "favourite", value: true, detail: "toggle + rilettura" } };
+    if (after.isFavourite === true) return { outcome: "done", sent: true, message: relaid ? "Like tolto e rimesso: confermato" : "Like confermato", relaid, capability: { name: "favourite", value: true, detail: "toggle + rilettura" } };
     if (after.isFavourite === false && after.source === "api") return { outcome: "uncertain", sent: true, message: "Vinted ha risposto OK ma il like non risulta: da verificare" };
     return { outcome: "done", sent: true, message: "Vinted ha confermato la richiesta (stato non rileggibile)", capability: { name: "favourite", value: true, detail: "toggle OK, rilettura non disponibile" } };
   };
@@ -299,6 +315,8 @@
     const btn = askInfoButton();
     if (btn === undefined) return { outcome: "changed", sent: false, message: "Pulsante «Chiedi info» non trovato sulla pagina (né data-testid=\"ask-seller-button\" né l'etichetta): struttura di Vinted cambiata", capability: { name: "askInfo", value: false, detail: "pulsante assente" } };
     if (!btn || isDisabled(btn)) return { outcome: "failed", sent: false, retryable: false, message: "«Chiedi info» non disponibile per questo annuncio" };
+    // Pagina non ancora caricata del tutto: Vinted non ha ancora collegato i suoi pulsanti.
+    if (document.readyState !== "complete") await waitFor(() => document.readyState === "complete", 10_000);
     globalThis.VTGuard.safeClick(btn);   // clic protetto dal divieto di acquisto
     return { outcome: "opened", sent: false, capability: { name: "askInfo", value: true, detail: "pulsante trovato" } };
   };
@@ -423,6 +441,29 @@
     if (r.kind === "auth") return { loggedIn: false };
     if (r.kind === "captcha") return { challenge: true };
     return { loggedIn: page.loggedIn, error: r.message };
+  };
+
+  // ---------------------------------------------------------------- account seguiti
+
+  /** Account che l'utente segue su Vinted (sola lettura, a pagine). */
+  VT.following = async ({ userId, perPage = 100, maxPages = 20 }) => {
+    if (!/^\d+$/.test(String(userId || ""))) return { outcome: "failed", message: "Account non valido" };
+    const users = [];
+    for (let page = 1; page <= maxPages; page++) {
+      const r = await api().request("GET", `/users/${userId}/followed_users?page=${page}&per_page=${perPage}`, { timeoutMs: 20_000 });
+      if (!r.ok) {
+        if (page > 1) break;
+        if (r.kind === "notFound" || r.kind === "http") return { outcome: "changed", message: `Elenco dei seguiti non disponibile (${r.message})` };
+        return asOutcome(r);
+      }
+      const list = r.data?.users;
+      if (!Array.isArray(list)) return { outcome: "changed", message: "Elenco dei seguiti in un formato sconosciuto" };
+      for (const u of list) if (u?.id != null) users.push({ id: String(u.id), login: u.login || null });
+      const total = Number(r.data?.pagination?.total_pages) || 1;
+      if (page >= total || list.length < perPage) break;
+      await sleep(500);
+    }
+    return { outcome: "done", users };
   };
 
   // ---------------------------------------------------------------- notifiche Vinted

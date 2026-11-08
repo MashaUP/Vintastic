@@ -10,6 +10,7 @@ import * as db from "./db.js";
 import * as store from "./store.js";
 import * as engine from "./engine.js";
 import * as scanner from "./scanner.js";
+import * as sellers from "./sellers.js";
 import * as session from "./session.js";
 import * as tabs from "./tabs.js";
 import * as health from "./health.js";
@@ -301,6 +302,9 @@ async function rpc(method, p, sender) {
     // scansione e annunci
     case "scan.start": return scanner.startScan({ url: p.url, tabId: p.useCurrentTab ? sender.tab?.id ?? null : null, maxItems: p.maxItems });
     case "scan.cancel": return scanner.cancelScan(p.id);
+    case "scan.get": return db.get("scans", p.id);
+    case "sellers.menu": return sellers.menu({ refresh: Boolean(p.refresh) });
+    case "sellers.following": return sellers.following({ refresh: Boolean(p.refresh) });
     case "scans.list": return (await db.getAll("scans")).sort((a, b) => b.startedAt - a.startedAt).slice(0, p.limit || 50);
     case "listings.query": {
       const all = await db.getAll("listings");
@@ -392,6 +396,7 @@ async function rpc(method, p, sender) {
     case "campaigns.pauseAll": return engine.pauseAll("user", "Pausa di tutte le campagne");
 
     // ledger, recupero
+    case "ledger.clear": return engine.clearHistory({ listingIds: p.listingIds || null, types: p.types || [], campaignId: p.campaignId || null });
     case "ledger.list": {
       const all = await db.getAll("ledger");
       return all.filter((e) => (!p.listingId || e.listingId === String(p.listingId)) && (!p.accountId || e.accountId === p.accountId)).sort((a, b) => b.at - a.at).slice(0, p.limit || 500);

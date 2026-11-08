@@ -221,17 +221,20 @@ function renderShell() {
   app.removeAttribute("aria-busy");
 }
 
+let renderSeq = 0;
 async function renderPage() {
+  const seq = ++renderSeq;              // vince solo l'ultimo disegno (es. filtri cambiati in fretta)
   const route = parseHash();
   ctx.route = route;
   const page = PAGES.find((p) => p.id === route.page) || (route.page === "onboarding" ? PAGES[0] : PAGES[0]);
+  const samePage = current === page && pageHost.isConnected && pageHost.firstChild;
   current = page;
   renderShell();
   document.title = `${page.label} · Vintastic`;
-  pageHost.replaceChildren(h("div", { class: "muted" }, "Caricamento…"));
+  if (!samePage) pageHost.replaceChildren(h("div", { class: "muted" }, "Caricamento…"));
   try {
     const node = await page.mod.render(ctx);
-    if (current === page) pageHost.replaceChildren(node);
+    if (current === page && seq === renderSeq) pageHost.replaceChildren(node);
   } catch (e) {
     console.error(e);
     pageHost.replaceChildren(h("div", { class: "callout bad" }, h("b", {}, "Questa sezione non si è caricata. "), e.message, h("div", { class: "small muted" }, "Il resto di Vintastic funziona. L'errore è nei Log.")));

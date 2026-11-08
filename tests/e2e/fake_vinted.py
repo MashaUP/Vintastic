@@ -50,7 +50,15 @@ class FakeVinted:
             "old_bubble": None,     # testo di un messaggio identico già presente nella conversazione
             "captcha_on_open": False,
             "return_fail": False,   # dopo un invio la pagina dell'annuncio non si carica
+            # Come vinted.it (misurato l'08/11/2026): il pulsante c'è subito, ma diventa cliccabile solo quando
+            # React ha «idratato» la pagina (~1,3 s dopo). Un clic prima non fa niente.
+            "hydrate_ms": 1500,     # ritardo prima che il pulsante abbia il suo gestore di clic
+            "react": True,          # False: pagina senza React (gestore subito, nessuna proprietà __reactProps$)
+            "dead_clicks": 0,       # quanti clic (già idratati) vengono ignorati, per provare il nuovo clic
         }
+        self.following = [(SELLER_ID, "venditrice_test"), ("88", "amico_test")]   # account seguiti (GET /users/:id/followed_users)
+        self.early_clicks = 0       # clic arrivati prima che il pulsante fosse cliccabile
+        self.ask_clicks = 0         # clic su «Chiedi info» che hanno avuto effetto
         self.messages = []          # (item_id, testo) messaggi arrivati al «server»
         self.send_clicks = 0        # pressioni di Invia (anche senza messaggio arrivato)
 
@@ -117,8 +125,17 @@ class FakeVinted:
               "newtab": f"window.open('{url}', '_blank');",
               "spa": f"history.pushState({{}}, '', '/inbox/{conv}'); setTimeout(() => renderChat(document.querySelector('main')), {int(self.chat['open_delay'] * 1000)});"}[self.chat["nav"]]
         # Struttura copiata da vinted.it (07/11/2026): <button data-testid="ask-seller-button"> con l'etichetta «Chiedi info».
+        react = "true" if self.chat["react"] else "false"
+        hyd = int(self.chat["hydrate_ms"]) if self.chat["react"] else 0
+        script = ("<script>(() => { const b = document.getElementById('ask-info'); let dead = %d; let ready = false;"
+                  " b.addEventListener('click', () => { if (!ready) fetch('/__fake/ask_early', { method: 'POST', body: '{}' }); });"
+                  " const go = () => { if (dead > 0) { dead--; return; } fetch('/__fake/ask_click', { method: 'POST', body: '{}' }); %s };"
+                  " const hydrate = () => { ready = true; b.addEventListener('click', go); if (%s) { b['__reactProps$fake'] = { onClick: go }; b['__reactFiber$fake'] = {}; } };"
+                  " if (%d > 0) setTimeout(hydrate, %d); else hydrate(); })();</script>") % (int(self.chat["dead_clicks"]), go, react, hyd, hyd)
+        # Come vinted.it: un'app Next.js (script in /_next/), riconoscibile anche prima dell'idratazione.
+        nxt = '<script src="/_next/static/chunks/app.js"></script>' if self.chat["react"] else ""
         return (f'<button type="button" class="web_ui__Button__button web_ui__Button__outlined web_ui__Button__default web_ui__Button__primary web_ui__Button__truncated" data-testid="ask-seller-button"{dis} id="ask-info"><span class="web_ui__Button__content"><span class="web_ui__Button__label">Chiedi info</span></span></button>'
-                + self.chat_script(iid) + f"<script>document.getElementById('ask-info').addEventListener('click', () => {{ {go} }});</script>")
+                + nxt + self.chat_script(iid) + script)
 
     def inbox_page(self, iid):
         return 200, self._page('<div id="chat"></div>' + self.chat_script(iid) + "<script>renderChat(document.getElementById('chat'));</script>", "Messaggi")
@@ -139,6 +156,15 @@ class FakeVinted:
             chunk = all_items[(page - 1) * per: page * per]
             out = [{**it, "is_favourite": it["id"] in self.favourites} for it in chunk]
             return 200, {"items": out, "pagination": {"current_page": page, "total_pages": -(-len(all_items) // per), "total_entries": len(all_items), "per_page": per}}
+        m = re.match(r"^/users/(\d+)/followed_users\?(.*)$", path)
+        if m and method == "GET":
+            if not self.logged_in:
+                return 401, {}
+            q = dict(x.split("=") for x in m.group(2).split("&"))
+            page, per = int(q.get("page", 1)), int(q.get("per_page", 20))
+            chunk = self.following[(page - 1) * per: page * per]
+            return 200, {"users": [{"id": int(i), "login": l, "is_favourite": True} for i, l in chunk],
+                         "pagination": {"current_page": page, "per_page": per, "total_entries": len(self.following), "total_pages": max(1, -(-len(self.following) // per))}}
         m = re.match(r"^/users/(\d+)$", path)
         if m:
             return (200, {"user": {"id": int(m.group(1)), "login": "andrea_test", "item_count": 12}}) if self.logged_in else (401, {})
@@ -205,6 +231,14 @@ class FakeVinted:
                     break
                 if isinstance(action, int):
                     return await route.fulfill(status=action, content_type="application/json", body=json.dumps({"message": f"fake {action}"}))
+        if path_q.startswith("/_next/"):
+            return await route.fulfill(status=200, content_type="application/javascript", body="")
+        if path_q in ("/__fake/ask_early", "/__fake/ask_click"):
+            if path_q == "/__fake/ask_early":
+                self.early_clicks += 1
+            else:
+                self.ask_clicks += 1
+            return await route.fulfill(status=200, content_type="application/json", body="{}")
         if path_q.startswith("/__fake/chat_"):
             if path_q == "/__fake/chat_click":
                 self.send_clicks += 1
@@ -230,6 +264,8 @@ class FakeVinted:
         if m:
             status, html = self.item_page(int(m.group(1)))
             return await route.fulfill(status=status, content_type="text/html", body=html)
+        if re.match(r"^/member/general/following/\d+", path_q):
+            return await route.fulfill(status=200, content_type="text/html", body=self._page("<h1>Seguito</h1>", "Seguito"))
         if re.match(r"^/member/\d+", path_q):
             status, html = self.wardrobe_page()
             return await route.fulfill(status=status, content_type="text/html", body=html)

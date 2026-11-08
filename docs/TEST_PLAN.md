@@ -13,7 +13,44 @@ actionlint .github/workflows/*.yml
 ```
 
 - `tests/unit/`: logica pura di `src/shared/` e migrazioni IndexedDB.
-- `tests/e2e/`: `fake_vinted.py` (Vinted finto), `harness.py` (avvio di Chrome con l'estensione), `scenarios.py` (funzioni generali), `messages.py` (messaggi privati), `cycles.py` (cicli e interfaccia 2.0), `run_all.py` (esecuzione e rapporto in `tests/e2e/artifacts/report.json`). Ogni scenario parte da un profilo pulito e controlla che nessuna richiesta d'acquisto sia partita e che le pagine non abbiano errori JavaScript.
+- `tests/e2e/`: `fake_vinted.py` (Vinted finto), `harness.py` (avvio di Chrome con l'estensione), `scenarios.py` (funzioni generali), `messages.py` (messaggi privati), `cycles.py` (cicli, interfaccia 2.0, menu Venditore), `run_all.py` (esecuzione e rapporto in `tests/e2e/artifacts/report.json`). Ogni scenario parte da un profilo pulito e controlla che nessuna richiesta d'acquisto sia partita e che le pagine non abbiano errori JavaScript.
+
+## Risultati 2.2.0
+
+| Suite | Superati | Falliti | Note |
+|---|---|---|---|
+| `npm test` (controlli + unitari) | 93 (controlli + 92 test) | 0 | nuovo: azzeramento dello storico (`resetLedgerSkipped`: solo i tipi e gli annunci scelti, mai «da verificare», mai le saltate per altri motivi) |
+| `npm run test:e2e` | 35 scenari | 0 | giro completo 34/35: «menu Venditore» falliva perché la scheda di lettura in background a volte restava non caricata; corretto in `tabs.withReaderTab` (si ricarica una volta se Vintastic non risponde) e ripetuto 3 volte da solo ✔. Nuovo: «storico azzerabile, like tolto e rimesso, filtri immediati» |
+| `npm run build` + verifica del pacchetto | ✔ | — | `Vintastic-2.2.0.zip`, 88 file, SHA-256 `cf488ac31cd6a358b502260ea174d2424b97959e364e5630c70e827ff7b2864b`; pacchetto GitHub estratto in una cartella pulita, `npm ci && npm test` superato |
+
+Lo scenario nuovo verifica: «Azzera storico…» dalla campagna con il pulsante rapido «Like» (like di nuovo in attesa, offerte ancora saltate, campagna completata → pronta, registro senza like e con le offerte); like già presente tolto e rimesso (2 toggle per annuncio, like presente alla fine, esito «tolto e rimesso»); «Lascialo» (nessun toggle); filtri degli Annunci mentre scrivi (130 → 0 → 130 senza perdere il cursore, «No Repeat» al cambio del menu); chip «Offerta ×» che azzera solo quella voce; nuova campagna che scorre da sola spuntando «Offerta» e aprendo «Messaggio privato» col triangolo.
+
+**Non eseguito su Vinted reale**: il like tolto e rimesso (toggle due volte) è provato solo sul Vinted finto.
+
+## Risultati 2.1.0
+
+| Suite | Superati | Falliti | Note |
+|---|---|---|---|
+| `npm test` (controlli + unitari) | 92 (controlli + 91 test) | 0 | nuovi: `sellers.test.mjs` (3), migrazione db_v4→v5, impostazioni 4→5, lista consentita con `followed_users` |
+| `npm run test:e2e` | 34 scenari | 0 | giro completo 33/34: «messaggi: ritorno, invio lento, CAPTCHA» falliva per una corsa nel test (la pagina della chat segnala la verifica ~0,2 s dopo l'esito, il test andava avanti prima); il test ora aspetta il segnale, scenario ripetuto da solo ✔. Nuovi: «Chiedi info» cliccabile in ritardo, menu Venditore |
+| `npm run build` + verifica del pacchetto | ✔ | — | `Vintastic-2.1.0.zip`, 87 file, SHA-256 `6f982a6b3f3a0b4f94066b86a9b0849bfa50c9138209a20f3adcfc05174172de`; pacchetto GitHub estratto in una cartella pulita, `npm ci && npm test` superato |
+
+### Osservato su Vinted reale (08/11/2026, Claude in Chrome nel browser dell'autore, nessun messaggio inviato)
+
+| Prova | Esito |
+|---|---|
+| Pagina dell'annuncio: quando compare «Chiedi info» e quando diventa cliccabile | pulsante a ~1,3 s, pagina completa a ~1,6 s, gestore di clic di React a **~2,6–2,9 s** (due misure) |
+| Clic appena compare il pulsante (1,2 s) | **nessun effetto**, la pagina resta sull'annuncio: è l'errore della 2.0.0 («il clic su «Chiedi info» non ha aperto la chat») |
+| Clic a pagina pronta | chat `/inbox/<uuid>?referrer=…` aperta, `textarea#composerInput` presente, pulsante Invia (`aria-label="Invia messaggio"`) abilitato dopo aver scritto; testo cancellato senza inviare |
+| `GET /api/v2/users/:id/followed_users?page=1&per_page=20` | 200, `users[]` con `id` e `login`, `pagination.total_pages` |
+
+### Non eseguibili qui (2.1.0)
+
+| Test | Motivo |
+|---|---|
+| Invio di un messaggio con Vintastic su Vinted reale | serve la tua sessione: è la prima prova da fare con la 2.1.0 |
+| Idratazione in una scheda davvero in background | in headless la scheda risulta visibile; coperto da attesa fino a 20 s + nuovo clic |
+| Menu Venditore con il tuo account vero | la lettura dei seguiti è stata provata a mano su vinted.it, non dall'estensione |
 
 ## Risultati 2.0.0
 
@@ -21,7 +58,7 @@ actionlint .github/workflows/*.yml
 |---|---|---|---|
 | `npm test` (controlli + unitari) | 87 (controlli + 86 test) | 0 | |
 | `npm run test:e2e` | 32 scenari | 0 | ultimo giro completo 32/32. Nel giro precedente 30/32: due scenari vecchi si aspettavano il comportamento 1.4.0 (schema 3; pausa dell’intera campagna con un modulo spento), aggiornati al nuovo comportamento voluto e ripassati |
-| `npm run build` + installazione del pacchetto | ✔ | — | BUILDNOTE |
+| `npm run build` + installazione del pacchetto | ✔ | — | `Vintastic-2.0.0.zip`, 85 file, SHA-256 `5f58e0e15f6bacdf7ed5926492c4225a25afb2d78beee6aac78705b1ca62ff60`; installato in Chrome senza errori |
 
 ## Test unitari
 
@@ -32,8 +69,9 @@ actionlint .github/workflows/*.yml
 | `ledger-policy.test.mjs` | No Repeat per tipo/account, stati bloccanti, storico, annunci ripubblicati, Policy Validator (sessione, account, kill switch, snapshot, soglie, messaggio dopo una simulazione), differenze di snapshot |
 | `filters-timers.test.mjs` | data automatica (pubblicazione → foto → ordine di Vinted), Top N + periodo, intervalli, campo data scelto, ricerca/stato/prezzo, ordinamenti, timer (transizione, per tipo, tra annunci, minimo), soglie e azzeramento giornaliero |
 | `guard.test.mjs` | **divieto d'acquisto**: 14 percorsi d'acquisto bloccati, lista ammessa, pulsanti in 10 lingue, analisi statica del codice, guard caricato per primo, permessi del manifest |
-| `misc.test.mjs` | redazione, export senza segreti, import (bozze, running → verify), deduplicazione, semver e release GitHub, migrazione impostazioni v1→v3, normalizzazione annunci, suggerimenti, statistiche senza simulazioni |
-| `db-migrations.test.mjs` | db_v1→v2→v3 con dati conservati, installazione pulita 0→3, **rollback** su passo fallito |
+| `misc.test.mjs` | redazione, export senza segreti, import (bozze, running → verify), deduplicazione, semver e release GitHub, migrazione impostazioni v1→v5 (3→4 commenti, 4→5 timer più bassi solo se ai vecchi predefiniti), normalizzazione annunci, suggerimenti, statistiche senza simulazioni |
+| `db-migrations.test.mjs` | db_v1→v2→v3 con dati conservati, db_v3→v4 (commenti), **db_v4→v5** (timer delle campagne aperte; valori scelti a mano e campagne concluse invariati), installazione pulita 0→5, **rollback** su passo fallito |
+| `sellers.test.mjs` | **2.1.0**: menu Venditore (seguiti, destinatari non seguiti, altri scansionati, niente doppioni o id non validi), testo delle opzioni |
 | `campaign-flow.test.mjs` | **2.0.0**: messaggio rinviato che non blocca like e offerte (la causa del blocco), tipi sospesi e moduli isolati, nuovi tentativi programmati, No Repeat con i cicli (stesso ciclo, altra campagna, nuovo ciclo, incerti mai), piano e applicazione del nuovo ciclo (cronologia, id, altri annunci intatti, testo a mano), riepilogo dei cicli, riapprovazione, validatore con modulo isolato, diagnosi della chat, selettori verificati, commenti assenti dal codice, «Posizione», notifiche, ordine di «In cima» |
 | `messages.test.mjs` | messaggio distinto dal commento, predefiniti (A, 10 al giorno, nessun destinatario), campagne nuove senza messaggi, **destinatari** (id, link, doppioni, nessun limite, se stessi, estranei), testo 1–1000, segnaposto, **6 fonti del testo** (predefinito, modello, scritto ora, rotazione, casuale riproducibile, suggerimento), modalità per campagna, anteprima (estranei saltati, testo a mano fisso, operazioni concluse intatte), **snapshot** con testo e modalità e compatibilità con 1.2.0/1.3.1, Policy Validator, soglia 10/giorno, No Repeat, pulizia delle impostazioni, **privacy** (Support Bundle, log), statistiche, clic solo da `VTGuard.safeClick` e nessuna API di messaggistica |
 
@@ -220,6 +258,9 @@ Ordine consigliato: campagna con **1** annuncio del tuo account principale, dall
 | «In cima» (2.0.0) | gli annunci aggiunti insieme finivano in ordine inverso | il gruppo va in cima nel suo ordine |
 | notifiche (2.0.0) | pastiglia «Avviso» in una colonna da 26 px, sopra il testo | colonna dedicata (`.feed.notes`) |
 | «Ripeti falliti» (2.0.0) | il conteggio dei tentativi non ripartiva | azzerato a ogni «Ripeti falliti» |
+| «Chiedi info» (2.1.0) | clic appena la pagina era caricata, prima che Vinted rendesse il pulsante cliccabile: la chat non si apriva mai | attesa del gestore di clic (lettura nel mondo della pagina) + nuovo clic dopo 5 s |
+| schede (2.1.0) | con una campagna in corso una scansione spostava la scheda di lavoro | scheda di lettura separata |
+| log (2.1.0) | «Serve una scheda di Vinted aperta» aggiunto a ogni errore con la parola «scheda» | solo per scheda di lavoro chiusa/assente |
 | recupero dopo crash (test) | controllava «nessun like prima del riavvio» dopo il riavvio, quando la campagna poteva già averlo messo | conteggio preso alla chiusura del browser + controllo «al massimo un like dopo» |
 
 ## Prova manuale consigliata su Vinted reale

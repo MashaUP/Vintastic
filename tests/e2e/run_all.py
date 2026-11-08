@@ -41,6 +41,9 @@ ORDER = [
     ("messaggi: crash del worker e ripresa", M.t_msg_crash),
     ("messaggi: chat rotta non blocca like e offerte", M.t_msg_isolation),
     ("messaggi: chat in una scheda nuova", M.t_msg_newtab),
+    ("messaggi: «Chiedi info» cliccabile in ritardo (come vinted.it)", M.t_msg_hydration),
+    ("menu Venditore: seguiti, destinatari, scansione automatica", Y.t_seller_menu),
+    ("storico azzerabile, like tolto e rimesso, filtri immediati", Y.t_history_relike),
     ("cicli: riprocessare annunci completati", Y.t_cycles),
     ("interfaccia 2.0: Posizione, commenti, notifiche", Y.t_ui_v2),
 ]

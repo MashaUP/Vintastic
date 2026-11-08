@@ -2,6 +2,40 @@
 
 Tutte le modifiche rilevanti di Vintastic. Formato [Keep a Changelog](https://keepachangelog.com/it/1.1.0/), versioni [Semantic Versioning](https://semver.org/lang/it/).
 
+## [2.2.0] - 2026-11-08
+
+Versione MINOR: funzioni nuove retrocompatibili, nessuna migrazione dei dati.
+
+### Aggiunto
+- **Azzera storico**: toglie dal registro No Repeat le operazioni scelte (solo like, solo offerte, solo messaggi privati o un mix, con pulsanti rapidi), così le campagne le rifanno invece di saltarle. Da tre punti: «Azzera storico…» nella coda della campagna (anche già completata: torna «pronta»), «Azzera storico» sugli annunci selezionati, clic sul chip «Like ×» / «Offerta ×» / «Messaggio privato ×» di un annuncio. Nelle campagne aperte le operazioni saltate perché «già fatte» tornano in attesa. Mai le voci «in corso» o «da verificare». Su Vinted non cambia niente.
+- **Like già presente su Vinted: tolto e rimesso.** Opzione per campagna «Se il like c'è già su Vinted»: «Toglilo e rimettilo» (predefinito) o «Lascialo». Si toglie, si rilegge lo stato, si rimette e si verifica; se qualcosa non torna l'operazione si riprova da una pagina ricaricata, rileggendo lo stato (mai un toggle alla cieca).
+
+### Cambiato
+- Annunci: i filtri si applicano subito, i campi di testo e i prezzi mentre scrivi (il cursore resta nel campo). Il venditore arrivato da un link non si reimpone più quando cambi menu; se cambi filtri in fretta vince l'ultimo.
+- Finestre (Nuova campagna e le altre): una sezione aperta col triangolo scorre da sola fino a mostrare le nuove opzioni; spuntando «Offerta» o «Messaggio privato» la loro sezione si apre e si mostra.
+
+### Corretto
+- Scheda di lettura separata (scansioni e seguiti con una campagna in corso): se restava non caricata o senza Vintastic, ora si ricarica una volta prima di reinserire Vintastic.
+
+## [2.1.0] - 2026-11-08
+
+Versione MINOR: funzioni nuove retrocompatibili (menu Venditore con gli account seguiti, timer impostabili più bassi) e la correzione di «Chiedi info». Le migrazioni (db_v5, impostazioni schema 5) cambiano solo valori rimasti ai vecchi predefiniti.
+
+### Corretto
+- **«Chiedi info» non apriva la chat** (log: «il clic su «Chiedi info» non ha aperto la chat (la scheda è rimasta sull'annuncio)»). Causa, misurata su vinted.it l'08/11/2026: il pulsante compare dopo ~1,3 s, ma diventa cliccabile solo quando Vinted ha finito di caricare i suoi script (~2,6–2,9 s). Vintastic cliccava appena la pagina era caricata, quindi il clic andava a vuoto; in una scheda in background il caricamento è ancora più lento. Riprodotto: un clic a 1,2 s non apre niente, a pagina pronta la chat si apre e il campo c'è. Ora:
+  - prima del clic Vintastic controlla, in sola lettura nel contesto della pagina (`chrome.scripting`, mondo `MAIN`), che il pulsante abbia il suo gestore di clic; aspetta fino a 20 s; il clic resta nel content script con `VTGuard.safeClick`;
+  - se la pagina resta sull'annuncio, il clic si ripete dopo 5 s (al massimo 3 clic): aprire la chat non invia niente, l'invio resta mai ripetuto da solo;
+  - la scheda va in primo piano anche se la finestra era ridotta a icona;
+  - diagnosi più precise (numero di clic, pulsante mai diventato cliccabile, scheda non visibile anche se portata in primo piano); tolto il suggerimento sbagliato «Serve una scheda di Vinted aperta».
+- Con una campagna in corso, scansioni e letture da Vinted spostavano la scheda di lavoro della campagna: ora usano una scheda separata in background, chiusa alla fine.
+
+### Aggiunto
+- **Menu Venditore** (Aggiungi annunci alla coda): prima gli **account che segui** su Vinted, poi i **destinatari dei messaggi** che non segui, poi gli altri venditori scansionati. Un venditore mai scansionato si può scegliere: con «Aggiungi» Vintastic legge prima il suo armadio (solo lettura) e poi aggiunge gli annunci. «Aggiorna seguiti» rilegge l'elenco; opzione «Rileggi prima il suo armadio». Lettura con `GET /users/:id/followed_users`, aggiunto alla lista consentita del guard (solo GET).
+- Impostazioni › Avanzate: attesa prima del 2° e del 3° tentativo di un'operazione non partita. Impostazioni › Timer: «Ripristina i predefiniti».
+
+### Cambiato
+- **Timer predefiniti molto più bassi**: stesso annuncio 3–8 s (prima 8–20), tra annunci 10–25 s (prima 45–120), transizioni 3–8 s (prima 10–25), minimo assoluto 2 s (prima 3), nuovi tentativi 30 s e 2 min (prima 1 e 5 min). Tutti impostabili in Impostazioni › Timer (e per campagna). Migrazione: cambiano solo i valori rimasti esattamente ai vecchi predefiniti, nelle impostazioni e nelle campagne non concluse; quelli scelti a mano restano.
+
 ## [2.0.0] - 2026-11-07
 
 Versione MAJOR: tolta un'operazione (i commenti) con migrazione dei dati non reversibile (db_v4, impostazioni schema 4) e cambiato il modo in cui il motore gestisce gli errori.

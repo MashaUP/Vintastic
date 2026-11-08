@@ -93,6 +93,8 @@ export async function createCampaign(input) {
       message: input.message || { source: "default" },   // vedi shared/messages.js: messageConfig
       requireConfirm: input.requireConfirm || {},
     },
+    // Like già presente su Vinted: "relike" = toglilo e rimettilo, "keep" = lascialo (operazione completata).
+    likeExisting: ["relike", "keep"].includes(input.likeExisting) ? input.likeExisting : (s.campaignDefaults?.likeExisting === "keep" ? "keep" : "relike"),
     timers: input.timers || {},
     skipRules: { notActive: true, ...(input.skipRules || {}) },
     sort: { mode: input.sortMode || "manual", seed: Date.now() % 100000 },
@@ -208,6 +210,52 @@ export function startNewCycle(campaignId, { itemIds = null, types = null, confir
   });
 }
 
+/**
+ * Azzera lo storico (registro No Repeat) di alcune operazioni, scelto dall'utente: per annunci
+ * (tutti se listingIds è null) e tipi. Mai le voci «in corso» o «da verificare»: un esito incerto
+ * resta bloccato finché non lo risolvi. Nelle campagne aperte le operazioni saltate perché «già
+ * fatte» tornano in attesa, così la coda le esegue.
+ */
+export function clearHistory({ listingIds = null, types = [], campaignId = null } = {}) {
+  return withLock(async () => {
+    const kinds = new Set((types || []).filter((t) => OP_TYPES.includes(t)));
+    if (!kinds.size) throw new Error("Scegli almeno un tipo di operazione da azzerare.");
+    let ids = listingIds ? new Set(listingIds.map(String)) : null;
+    if (campaignId) {
+      const own = (await campaignItems(campaignId)).filter((i) => !i.removed).map((i) => String(i.listingId));
+      ids = new Set(ids ? own.filter((x) => ids.has(x)) : own);
+    }
+    let removed = 0;
+    let kept = 0;
+    for (const e of await db.getAll("ledger")) {
+      if (!kinds.has(e.type) || (ids && !ids.has(String(e.listingId)))) continue;
+      if (["running", "verify"].includes(e.status)) { kept++; continue; }
+      await db.del("ledger", e.key);
+      removed++;
+    }
+    let reset = 0;
+    for (const c of await db.getAll("campaigns")) {
+      // Campagne aperte; quella da cui si azzera anche se già completata (torna «pronta»).
+      if (c.status === "stopped" || (c.status === "completed" && c.id !== campaignId)) continue;
+      const items = await campaignItems(c.id);
+      const r = Q.resetLedgerSkipped(items, { listingIds: ids, types: [...kinds] });
+      if (!r.count) continue;
+      reset += r.count;
+      const next = await prepare(c, r.items);
+      await saveItems(next);
+      histC(c, "storico azzerato", `${r.count} operazioni di nuovo in attesa`);
+      if (c.snapshot && ["running", "paused", "ready"].includes(c.status)) c.snapshot = makeSnapshot(next);
+      if (c.status === "completed") Object.assign(c, transitionCampaign(c, "ready"), { completedAt: null, snapshot: null });
+      await saveCampaign(c, next);
+    }
+    const what = [...kinds].map((t) => OP_LABEL[t].toLowerCase()).join(", ");
+    await log({ level: "info", category: "campaign", message: `Storico azzerato (${what}): ${removed} voci tolte${kept ? `, ${kept} in corso o da verificare lasciate` : ""}; ${reset} operazioni di nuovo in attesa`, data: { listings: ids ? ids.size : "tutti", types: [...kinds] } });
+    await activity("campaign", `Storico azzerato: ${removed} ${what}`, {});
+    kick();
+    return { removed, kept, reset };
+  });
+}
+
 /** Modifiche alla coda: remove, skip, move, reorder, priority, editOps, addOps, retry, sort. */
 export function mutateQueue(campaignId, action, args = {}) {
   return withLock(async () => {
@@ -297,7 +345,7 @@ export function updateCampaign(id, patch) {
   return withLock(async () => {
     const c = await getCampaign(id);
     if (!c) throw new Error("Campagna non trovata");
-    const allowed = ["name", "dryRun", "timers", "skipRules", "opsDefaults", "accountId", "origin"];
+    const allowed = ["name", "dryRun", "timers", "skipRules", "opsDefaults", "accountId", "origin", "likeExisting"];
     if (c.status === "running" && "dryRun" in patch && patch.dryRun !== c.dryRun) throw new Error("Metti in pausa la campagna prima di passare tra simulazione e modalità reale.");
     const goingLive = c.dryRun && patch.dryRun === false;
     const offerChanged = "opsDefaults" in patch && stableStringify(patch.opsDefaults?.offerCfg || null) !== stableStringify(c.opsDefaults?.offerCfg || null);
@@ -785,7 +833,7 @@ async function runOp(c, item, op, settings) {
   try {
     res = await tabs.sendToTab(tabId, {
       type: "vt:exec",
-      op: { type: op.type, amount: op.amount ?? null },
+      op: { type: op.type, amount: op.amount ?? null, relike: op.type === "like" && (c.likeExisting || settings.campaignDefaults?.likeExisting || "relike") === "relike" },
       listing: { id: item.listingId, sellerId: item.listing.sellerId, price: item.listing.price, currency: item.listing.currency, url: item.listing.url },
       expectedUserId: c.accountId?.split("@")[0],
       snapshotPrice: item.listing.price,
@@ -821,16 +869,55 @@ async function tabInfo(tabId) {
   }
 }
 
-/** Content script assente su una pagina già caricata: lo si reinserisce (stessi file del manifest). */
-async function reinject(tabId) {
-  if (!chrome.scripting?.executeScript) return false;
-  try {
-    const files = chrome.runtime.getManifest().content_scripts?.[0]?.js || [];
-    await chrome.scripting.executeScript({ target: { tabId }, files });
-    return true;
-  } catch {
-    return false;
+
+/**
+ * Lettura (mai un clic) nel contesto della pagina: «Chiedi info» ha già il suo gestore di clic?
+ * I content script vivono in un mondo isolato e non vedono le proprietà che React mette sugli
+ * elementi; per questo si guarda con chrome.scripting nel mondo della pagina. Funzione autonoma
+ * (viene serializzata). Il clic resta nel content script, con VTGuard.safeClick.
+ */
+function probeAskButton() {
+  const b = document.querySelector('button[data-testid="ask-seller-button"]')
+    || [...document.querySelectorAll("span.web_ui__Button__label")].find((s) => s.textContent.trim() === "Chiedi info")?.closest("button");
+  const out = { button: Boolean(b), readyState: document.readyState, visible: document.visibilityState === "visible", react: false, hydrated: false };
+  // App Next.js/React (come vinted.it): i pulsanti diventano cliccabili solo dopo l'idratazione.
+  out.react = Boolean(document.querySelector('script[src*="/_next/"]')) || typeof self.__next_f === "object";
+  if (!b) return out;
+  let el = b;
+  for (let i = 0; el && i < 12; i++, el = el.parentElement) {
+    if (Object.keys(el).some((k) => k.startsWith("__react"))) { out.react = true; break; }
   }
+  const key = Object.keys(b).find((k) => k.startsWith("__reactProps$"));
+  out.hydrated = Boolean(key && typeof b[key]?.onClick === "function");
+  return out;
+}
+
+/**
+ * Aspetta che «Chiedi info» sia cliccabile (React ha finito di «idratare» la pagina).
+ * Pagina senza React (o React non riconoscibile) dopo 4 s dal caricamento completo: si prosegue,
+ * e se il clic non ha effetto waitChat lo ripete. Al massimo timeoutMs.
+ */
+async function waitClickable(tabId, { timeoutMs = 20_000, noReactGraceMs = 4_000 } = {}) {
+  const t0 = Date.now();
+  if (!chrome.scripting?.executeScript) { await sleep(3000); return { hydrated: null, waitedMs: Date.now() - t0, probe: "none" }; }
+  let last = null;
+  let completeAt = null;
+  while (Date.now() - t0 < timeoutMs) {
+    try {
+      const [res] = await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", func: probeAskButton });
+      last = res?.result || null;
+    } catch {
+      last = null;
+    }
+    if (last?.hydrated) { await sleep(300); return { ...last, waitedMs: Date.now() - t0 }; }
+    if (last?.readyState === "complete") completeAt ??= Date.now();
+    // Nessun segno di React sul pulsante: non c'è niente da aspettare (o non si sa riconoscerlo).
+    if (last?.button && !last.react && completeAt && Date.now() - completeAt >= noReactGraceMs) break;
+    // Nessun pulsante a pagina completa: lo dirà msgOpen (struttura cambiata / non disponibile).
+    if (last && !last.button && completeAt && Date.now() - completeAt >= noReactGraceMs) break;
+    await sleep(250);
+  }
+  return { ...(last || {}), hydrated: last?.hydrated ?? null, waitedMs: Date.now() - t0 };
 }
 
 /**
@@ -839,9 +926,14 @@ async function reinject(tabId) {
  * pagina caricata viene reinserito), campo #composerInput. Il tempo massimo riparte quando
  * l'indirizzo cambia (navigazione in corso).
  */
-async function waitChat(tabId, watcher, { quietMs = 25_000, maxMs = 60_000 } = {}) {
+async function waitChat(tabId, watcher, { quietMs = 25_000, maxMs = 60_000, reclick = null, clickable = null, focus = null, reclickAfterMs = 5_000, maxClicks = 3 } = {}) {
   const t0 = Date.now();
-  const d = { polls: 0, noContent: 0, reinjected: false, newTab: false, url: null, status: null, visible: null, askButton: null, textareas: null, composer: false };
+  const d = {
+    polls: 0, noContent: 0, reinjected: false, newTab: false, url: null, status: null, visible: null, askButton: null, textareas: null, composer: false,
+    clicks: 1, clickable: clickable ? { hydrated: clickable.hydrated ?? null, waitedMs: clickable.waitedMs ?? null } : null,
+    focusAsked: focus?.asked ?? null, focusOk: focus?.ok ?? null,
+  };
+  let lastClick = Date.now();
   let target = tabId;
   let prevUrl = null;
   let lastChange = Date.now();
@@ -862,13 +954,22 @@ async function waitChat(tabId, watcher, { quietMs = 25_000, maxMs = 60_000 } = {
     } catch (e) {
       if (e.notSent) {
         d.noContent++;
-        if (info.status === "complete" && d.noContent >= 4 && !d.reinjected) d.reinjected = await reinject(target);
+        if (info.status === "complete" && d.noContent >= 4 && !d.reinjected) d.reinjected = await tabs.reinject(target);
       }
     }
     if (r) Object.assign(d, { visible: r.visible ?? d.visible, askButton: r.askButton ?? d.askButton, textareas: r.textareas ?? d.textareas, composer: Boolean(r.ready) });
     if (r?.challenge) return { challenge: true, tabId: target, diag: d };
     if (r?.ready) return { ready: true, tabId: target, diag: { ...d, waitedMs: Date.now() - t0 } };
     if (r?.loggedIn === false && !String(info.url || "").includes("/items/")) return { loggedIn: false, tabId: target, diag: d };
+    // Ancora sull'annuncio con il pulsante presente, nessuna scheda nuova: il clic non ha avuto effetto. Si riprova.
+    const stuck = target === tabId && /\/items\/\d+/.test(String(info.url || "")) && info.status === "complete" && r?.askButton;
+    if (stuck && reclick && d.clicks < maxClicks && Date.now() - lastClick >= reclickAfterMs) {
+      d.clicks++;
+      lastClick = Date.now();
+      lastChange = Date.now();          // un nuovo clic dà di nuovo tutto il tempo alla chat
+      const again = await reclick();
+      if (again && again.outcome && again.outcome !== "opened") d.reclickOutcome = again.outcome;
+    }
     await sleep(400);
   }
   return { ready: false, tabId: target, diag: { ...d, waitedMs: Date.now() - t0 } };
@@ -915,20 +1016,26 @@ async function runMessage(c, item, op, settings, tabId) {
   const allowed = cleanRecipients(ms.recipients).map((r) => r.id);
   const title = item.listing?.title?.slice(0, 50) || item.listingId;
   // In una scheda in background la chat di Vinted può non disegnarsi: per i messaggi la scheda va in primo piano.
-  if (ms.focusTab !== false || mode === "manual") await tabs.focus(tabId);
+  const focused = ms.focusTab !== false || mode === "manual" ? await tabs.focus(tabId) : null;
   const watcher = watchOpenedTabs(tabId);
   let chatTab = tabId;
   try {
+    // Vinted disegna «Chiedi info» prima che i suoi script lo rendano cliccabile (verificato il 08/11/2026:
+    // pulsante a ~1,3 s, cliccabile a ~2,6–2,9 s). Un clic prima di allora non fa niente.
+    const clickable = await waitClickable(tabId);
+    const openMsg = { type: "vt:msgOpen", listing: msgListing(item), allowed, self: c.accountId?.split("@")[0] || null };
     let open;
     try {
-      open = await tabs.sendToTab(tabId, { type: "vt:msgOpen", listing: msgListing(item), allowed, self: c.accountId?.split("@")[0] || null }, 30_000);
+      open = await tabs.sendToTab(tabId, openMsg, 30_000);
     } catch (e) {
       if (e.notSent) return notSent(c, item, op, "error", e.message);
       open = { outcome: "opened" };     // la pagina è cambiata subito dopo il clic: la chat si sta aprendo
     }
     if (open?.outcome !== "opened") return applyOutcome(c, item, op, { ...open, sent: false }, tabId);
 
-    const chat = await waitChat(tabId, watcher);
+    // Se il clic non ha effetto si riprova (aprire la chat non invia niente): al massimo 3 clic in tutto.
+    const reclick = () => tabs.sendToTab(tabId, openMsg, 15_000).catch(() => null);
+    const chat = await waitChat(tabId, watcher, { reclick, clickable, focus: { asked: focused !== null, ok: focused } });
     chatTab = chat.tabId;
     if (chat.challenge) return notSent(c, item, op, "captcha", "Vinted chiede una verifica per aprire la chat", chatTab);
     if (chat.loggedIn === false) return notSent(c, item, op, "auth", "Sessione Vinted non attiva nella chat", chatTab);
@@ -1028,7 +1135,7 @@ async function notSent(c, item, op, kind, message, tabId = null, diag = null) {
   const cur = await getCampaign(c.id);
   if (kind === "captcha" || kind === "blocked") return platformBlock(cur, kind, message, tabId);
   if (kind === "auth") return startAuthFlow(cur, message, tabId);
-  await log({ level: "warn", category: "op", campaignId: c.id, listingId: item.listingId, opType: op.type, message: `Non partita (tentativo ${attempts}/${maxAttempts}): ${message}`, code: /scheda|tab/i.test(message) ? "noTab" : null, data: diag ? { diag } : undefined });
+  await log({ level: "warn", category: "op", campaignId: c.id, listingId: item.listingId, opType: op.type, message: `Non partita (tentativo ${attempts}/${maxAttempts}): ${message}`, code: /scheda di lavoro (non|chiusa)|nessuna scheda/i.test(message) ? "noTab" : null, data: diag ? { diag } : undefined });
   return countFailure(c, op.type, message);
 }
 
@@ -1127,7 +1234,7 @@ async function applyOutcome(c, item, op, res, tabId) {
       await setLedger(c.accountId, item, op, "completed", c.id, { result: res.outcome });
       await health.recordSuccess(op.type);
       await countSuccess(c, op.type);
-      const verb = res.outcome === "already" ? "già presente" : op.type === "offer" ? "inviata" : op.type === "message" ? "inviato" : "completato";
+      const verb = res.outcome === "already" ? "già presente" : res.relaid ? "tolto e rimesso" : op.type === "offer" ? "inviata" : op.type === "message" ? "inviato" : "completato";
       await activity(op.type, `${label} ${verb}: «${title}»${op.amount ? ` · ${op.amount} €` : ""}`, { campaignId: c.id, listingId: item.listingId });
       return finishOp(c, item, op, "completed", { result: { outcome: res.outcome, detail: res.message }, listingPatch });
     }

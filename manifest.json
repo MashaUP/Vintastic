@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Vintastic",
-  "version": "2.0.0",
+  "version": "2.2.0",
   "description": "Assistente per Vinted: scanner degli armadi, campagne di like, offerte e messaggi privati con il tuo account, code dinamiche, dashboard e diagnostica. Non acquista mai nulla.",
   "minimum_chrome_version": "116",
   "icons": {
