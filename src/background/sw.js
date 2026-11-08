@@ -331,7 +331,7 @@ async function rpc(method, p, sender) {
       else if (dir === "asc") list = list.slice().reverse();
       const page = list.slice(offset, offset + limit).map((l) => ({
         ...l,
-        interactions: sum[l.id] ? { like: sum[l.id].like, comment: sum[l.id].comment, offer: sum[l.id].offer, message: sum[l.id].message, accounts: [...sum[l.id].accounts] } : null,
+        interactions: sum[l.id] ? { like: sum[l.id].like, offer: sum[l.id].offer, message: sum[l.id].message, accounts: [...sum[l.id].accounts] } : null,
         campaigns: [...new Set(items.filter((i) => i.listingId === l.id && !i.removed).map((i) => camps.get(i.campaignId)).filter(Boolean))],
       }));
       return { items: page, total: r.items.length, all: r.total, noDate: r.noDate, ids: p.withIds ? list.map((l) => l.id) : undefined };
@@ -371,10 +371,12 @@ async function rpc(method, p, sender) {
       const ids = p.all ? (await engine.listCampaigns()).map((c) => c.id) : (p.ids || []);
       return engine.deleteCampaigns(ids);
     }
+    case "campaigns.cyclePreview": return engine.refreshPreview(p.id, { itemIds: p.itemIds || null, types: p.types || null });
+    case "campaigns.newCycle": return engine.startNewCycle(p.id, { itemIds: p.itemIds || null, types: p.types || null, confirm: p.confirm === true });
     case "campaigns.add": {
       let listings = p.listings || [];
       if (p.listingIds?.length) listings = (await Promise.all(p.listingIds.map((id) => db.get("listings", String(id))))).filter(Boolean);
-      return engine.addToCampaign(p.id, listings, p.spec || {}, p.where || "end");
+      return engine.addToCampaign(p.id, listings, p.spec || {}, p.where || null);
     }
     case "campaigns.mutate": return engine.mutateQueue(p.id, p.action, p.args || {});
     case "campaigns.preview": return engine.preview(p.id);
@@ -421,7 +423,7 @@ async function rpc(method, p, sender) {
       const texts = await suggestFor(listing, p.opts || {});
       const rec = { id: uid("s_"), listingId: String(listing.id), title: listing.title, url: listing.url, at: Date.now(), texts, source: "manuale", used: false };
       await db.put("suggestions", rec);
-      await activity("comment", `Commento suggerito per «${listing.title?.slice(0, 40)}»`, { listingId: listing.id });
+      await activity("suggestion", `Domande suggerite per «${listing.title?.slice(0, 40)}»`, { listingId: listing.id });
       return rec;
     }
     case "suggestions.list": return (await db.getAll("suggestions")).sort((a, b) => b.at - a.at).slice(0, p.limit || 200);
@@ -437,7 +439,7 @@ async function rpc(method, p, sender) {
       for (const id of ids) chrome.notifications?.clear(id);
       return { deleted: ids.length };
     }
-    case "notifications.test": return notifyMod.notify({ category: "info", level: "info", title: "Notifica di prova", body: "Le notifiche di Vintastic funzionano." });
+    case "notifications.test": return notifyMod.notify({ category: "info", level: ["warning", "error", "critical"].includes(p.level) ? p.level : "info", title: "Notifica di prova", body: "Le notifiche di Vintastic funzionano." });
     case "cleaner.preview": return cleaner.preview(p.pages || 3);
     case "cleaner.clean": cleaner.clean(p.ids || []).catch(() => {}); return { started: true };
     case "cleaner.pause": return cleaner.pauseClean(p.paused !== false);
@@ -497,7 +499,7 @@ async function rpc(method, p, sender) {
       const s = await store.getSettings();
       const sess = await session.current();
       const counters = await store.getState("counters", null);
-      return Object.fromEntries(OP_TYPES.filter((t) => t !== "comment").map((t) => [t, checkLimit(counters, p.accountId || sess.accountId, t, s.limits)]));
+      return Object.fromEntries(OP_TYPES.map((t) => [t, checkLimit(counters, p.accountId || sess.accountId, t, s.limits)]));
     }
 
     // aggiornamenti e link

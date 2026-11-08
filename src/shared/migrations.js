@@ -1,11 +1,11 @@
 /**
  * Config Migration Engine.
  *
- * - DB_STEPS: passi versionati dello schema IndexedDB (db_v1 → db_v2 → db_v3).
+ * - DB_STEPS: passi versionati dello schema IndexedDB (db_v1 → … → db_v4).
  *   onupgradeneeded esegue in ordine tutti i passi da oldVersion+1 a DB_VERSION,
  *   dentro la stessa transazione di upgrade: se uno fallisce, IndexedDB annulla
  *   tutto e il database resta alla versione precedente (rollback automatico).
- * - SETTINGS_STEPS: passi delle impostazioni (schema 1 → 2 → 3). Prima di
+ * - SETTINGS_STEPS: passi delle impostazioni (schema 1 → … → 4). Prima di
  *   migrare, il service worker salva una copia (backup) delle impostazioni.
  * - migrateExport: porta un file di backup vecchio al formato attuale.
  */
@@ -60,6 +60,58 @@ export const DB_STEPS = {
   },
 };
 
+// db_v3 → db_v4 (Vintastic 2.0.0): via i «commenti» (operazione inesistente su Vinted),
+// cicli di esecuzione e «Posizione» predefinita delle campagne.
+DB_STEPS[4] = (db, tx) => {
+  const each = (store, fn) => {
+    const req = tx.objectStore(store).openCursor();
+    req.onsuccess = () => { const cur = req.result; if (!cur) return; fn(cur); cur.continue(); };
+  };
+  each("items", (cur) => cur.update(migrateItemV4(cur.value)));
+  each("campaigns", (cur) => cur.update(migrateCampaignV4(cur.value)));
+  each("ledger", (cur) => { if (cur.value.type === "comment") cur.delete(); });
+};
+
+/** Elemento della coda senza operazioni «comment». Se non resta niente, l'elemento è tolto (non cancellato). */
+export function migrateItemV4(item) {
+  if (!item || !Array.isArray(item.ops)) return item;
+  const ops = item.ops.filter((o) => o.type !== "comment").map((o) => ({ ...o, cycle: o.cycle || 1 }));
+  const dropped = item.ops.length - ops.length;
+  const out = { ...item, ops };
+  if (dropped) {
+    out.history = [...(item.history || []), { at: Date.now(), action: "migrazione 2.0.0", detail: `${dropped} commenti tolti (funzione rimossa)` }];
+    if (!ops.length) Object.assign(out, { removed: true, removedReason: "conteneva solo commenti (funzione rimossa)" });
+  }
+  return out;
+}
+
+/** Campagna: niente «comment» tra i tipi, ciclo 1, Posizione «In cima» se mai scelta. */
+export function migrateCampaignV4(c) {
+  if (!c) return c;
+  const out = { ...c };
+  if (c.opsDefaults) {
+    const types = (c.opsDefaults.types || []).filter((t) => t !== "comment");
+    out.opsDefaults = { ...c.opsDefaults, types: types.length ? types : ["like"] };
+    if (Array.isArray(c.opsDefaults.order)) out.opsDefaults.order = c.opsDefaults.order.filter((t) => t !== "comment");
+    delete out.opsDefaults.comment;
+  }
+  if (Array.isArray(c.order)) out.order = c.order.filter((t) => t !== "comment");
+  if (!c.addPosition) out.addPosition = "start";
+  if (!c.cycle) out.cycle = { n: 1, id: `${c.id}-1`, startedAt: c.startedAt || c.createdAt || null };
+  if (!Array.isArray(c.cycles)) out.cycles = [];
+  return out;
+}
+
+/** Impostazioni senza le chiavi dei commenti. */
+export function stripCommentSettings(s) {
+  const out = structuredClone(s || {});
+  if (out.limits?.perDay) delete out.limits.perDay.comment;
+  if (out.timers?.transitions) for (const k of Object.keys(out.timers.transitions)) if (k.split(">").includes("comment")) delete out.timers.transitions[k];
+  if (out.features) delete out.features.comment;
+  if (out.moduleKill) delete out.moduleKill.comment;
+  return out;
+}
+
 export function runDbUpgrade(db, tx, oldVersion, newVersion = DB_VERSION) {
   const applied = [];
   for (let v = oldVersion + 1; v <= newVersion; v++) {
@@ -79,7 +131,7 @@ export const SETTINGS_STEPS = {
       out.timers = { betweenItems: { min: Number(s.timers.minDelay ?? 45), max: Number(s.timers.maxDelay ?? 120) } };
     }
     if (isPlainObject(s.limits) && "daily" in s.limits) {
-      out.limits = { perDay: { like: Number(s.limits.daily), comment: Number(s.limits.daily), offer: Number(s.limits.daily) } };
+      out.limits = { perDay: { like: Number(s.limits.daily), offer: Number(s.limits.daily) } };
     }
     return out;
   },
@@ -90,6 +142,9 @@ export const SETTINGS_STEPS = {
     if (typeof s.overlay === "boolean") out.overlay = { fab: s.overlay, widget: s.overlay };
     return out;
   },
+  // schema 3 → 4 (2.0.0): via le chiavi dei commenti. La «Posizione» predefinita (In cima)
+  // arriva dai valori predefiniti solo se l'utente non ne ha già scelta una.
+  4: (s) => ({ ...stripCommentSettings(s), schema: 4 }),
 };
 
 export function migrateSettings(stored) {

@@ -1,5 +1,5 @@
 /**
- * Suggerimenti di commenti/domande.
+ * Suggerimenti di domande al venditore (per i messaggi privati o da copiare).
  *  - local (predefinito): regole, nessun dato esce dal browser, costo zero, istantaneo.
  *  - api: endpoint compatibile OpenAI scelto da te (servizio esterno o LLM locale
  *    come Ollama: http://localhost:11434/v1/chat/completions). Si mandano solo i

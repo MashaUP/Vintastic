@@ -225,9 +225,9 @@
   function addPanel(m, itemId) {
     const camps = (state.overview?.campaigns || []).filter((c) => !["completed", "stopped"].includes(c.status));
     const sel = el("select", { "aria-label": "Campagna" }, ...camps.map((c) => el("option", { value: c.id }, c.name)), el("option", { value: "__new" }, "+ Nuova campagna (simulazione)"));
-    const types = ["like", "offer", "comment", "message"].map((t) => {
+    const types = ["like", "offer", "message"].map((t) => {
       const cb = el("input", { type: "checkbox", value: t, checked: t === "like" });
-      return { t, cb, label: el("label", {}, cb, { like: "Like", offer: "Offerta", comment: "Commento (suggerimento)", message: "Messaggio privato (solo destinatari autorizzati)" }[t]) };
+      return { t, cb, label: el("label", {}, cb, { like: "Like", offer: "Offerta", message: "Messaggio privato (solo destinatari autorizzati)" }[t]) };
     });
     put(m, el("button", { onclick: () => { state.panel = null; render(); } }, el("span", { class: "ic" }, "←"), "Indietro"),
       el("div", { class: "form" }, el("div", { class: "muted" }, `Annuncio ${itemId}`), sel, ...types.map((x) => x.label),

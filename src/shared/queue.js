@@ -22,11 +22,12 @@ export function makeOp(type, spec = {}) {
     attempts: 0,
     amount: type === "offer" ? (spec.amount ?? null) : undefined,
     offerCfg: type === "offer" ? (spec.offerCfg || null) : undefined,
-    comment: type === "comment" ? (spec.comment || "") : undefined,
     // Messaggio: testo e modalità si calcolano nell'anteprima (engine.fillMessages).
     text: type === "message" ? null : undefined,
     mode: type === "message" ? null : undefined,
     requireConfirm: Boolean(spec.requireConfirm?.[type]),
+    cycle: spec.cycle || 1,                 // ciclo di esecuzione (vedi refreshPlan)
+    cycleId: spec.cycleId || null,
     createdAt: now(),
   };
 }
@@ -65,14 +66,44 @@ export function executionOrder(items) {
   return activeItems(items).slice().sort((a, b) => (b.priority || 0) - (a.priority || 0) || a.position - b.position);
 }
 
-/** Prossima operazione da eseguire (nessuna se una è già in esecuzione). */
-export function nextOp(items) {
+/**
+ * Un'operazione in attesa si può eseguire adesso?
+ * - retryAfter: un tentativo non partito si riprova più tardi, senza bloccare le altre;
+ * - blocked: tipi sospesi nella campagna (errori di fila) o moduli isolati dal circuit breaker.
+ */
+export function isEligible(op, { now: t = Date.now(), blocked = new Set() } = {}) {
+  return OP_PENDING.has(op.status) && !(op.retryAfter > t) && !blocked.has(op.type);
+}
+
+/**
+ * Prossima operazione da eseguire (nessuna se una è già in esecuzione).
+ * Un'operazione rinviata o di un tipo sospeso non ferma le altre: si passa alla successiva,
+ * anche sullo stesso annuncio.
+ */
+export function nextOp(items, opts = {}) {
   if (items.some((i) => i.ops.some((o) => o.status === "running"))) return null;
   for (const item of executionOrder(items)) {
-    const op = item.ops.find((o) => OP_PENDING.has(o.status));
+    const op = item.ops.find((o) => isEligible(o, opts));
     if (op) return { item, op };
   }
   return null;
+}
+
+/** Ci sono ancora operazioni in attesa (eseguibili subito o più tardi)? */
+export const hasPending = (items) => activeItems(items).some((i) => i.ops.some((o) => OP_PENDING.has(o.status)));
+
+/**
+ * Perché non c'è niente da eseguire adesso: il primo nuovo tentativo programmato e i tipi bloccati
+ * che hanno ancora operazioni in attesa.
+ */
+export function waitingState(items, { now: t = Date.now(), blocked = new Set() } = {}) {
+  const pending = activeItems(items).flatMap((i) => i.ops.filter((o) => OP_PENDING.has(o.status)));
+  const later = pending.filter((o) => !blocked.has(o.type) && o.retryAfter > t).map((o) => o.retryAfter);
+  return {
+    pending: pending.length,
+    retryAt: later.length ? Math.min(...later) : null,
+    blockedTypes: [...new Set(pending.filter((o) => blocked.has(o.type)).map((o) => o.type))],
+  };
 }
 
 /** Aggiunge annunci. Se l'annuncio c'è già, aggiunge solo i tipi di operazione mancanti. */
@@ -80,8 +111,10 @@ export function addItems(items, listings, spec, campaignId, where = "end") {
   let out = items.slice();
   const changed = [];
   const rejected = [];
-  let minPos = Math.min(0, ...out.map((i) => i.position));
   let maxPos = Math.max(-1, ...out.map((i) => i.position));
+  // «In cima»: il gruppo aggiunto va sopra la coda esistente MANTENENDO il suo ordine
+  // (prima della 2.0.0 ogni annuncio finiva sopra il precedente e il gruppo si capovolgeva).
+  let topPos = Math.min(0, ...out.map((i) => i.position)) - listings.length - 1;
   for (const l of listings) {
     const existing = out.find((i) => i.listingId === String(l.id) && !i.removed);
     if (existing) {
@@ -94,7 +127,7 @@ export function addItems(items, listings, spec, campaignId, where = "end") {
       }
       continue;
     }
-    const pos = where === "start" ? --minPos : ++maxPos;
+    const pos = where === "start" ? ++topPos : ++maxPos;
     const item = buildItem(l, spec, campaignId, pos);
     if (!item.ops.length) { rejected.push({ listingId: String(l.id), reason: "nessuna operazione scelta" }); continue; }
     out.push(item);
@@ -135,7 +168,7 @@ export function editItemOps(item, patch) {
     const text = "text" in p && o.type === "message"
       ? (String(p.text || "").trim() ? { text: String(p.text).trim(), textLocked: true, msgSource: "manuale", msgError: null } : { text: null, textLocked: false })
       : {};
-    return { ...o, ...("amount" in p ? { amount: p.amount } : {}), ...("comment" in p ? { comment: p.comment } : {}), ...("offerCfg" in p ? { offerCfg: p.offerCfg, amount: null } : {}), ...("requireConfirm" in p ? { requireConfirm: Boolean(p.requireConfirm) } : {}), ...text, updatedAt: now() };
+    return { ...o, ...("amount" in p ? { amount: p.amount } : {}), ...("offerCfg" in p ? { offerCfg: p.offerCfg, amount: null } : {}), ...("requireConfirm" in p ? { requireConfirm: Boolean(p.requireConfirm) } : {}), ...text, updatedAt: now() };
   });
   return { item: hist({ ...item, ops }, "modificato"), rejected };
 }
@@ -190,7 +223,8 @@ export function retryFailed(items, ids = null) {
     const ops = i.ops.map((o) => {
       if (o.status !== "failed" || o.retryable === false) return o;
       local++;
-      return { ...o, status: "waiting", attempts: (o.attempts || 0) + 1, error: null, updatedAt: now() };
+      // Nuova serie di tentativi: il contatore riparte (opRetry), lo storico resta nella cronologia.
+      return { ...o, status: "waiting", attempts: 0, retryAfter: null, retries: (o.retries || 0) + 1, error: null, updatedAt: now() };
     });
     count += local;
     return local ? hist({ ...i, ops }, "riprova falliti") : i;
@@ -217,4 +251,90 @@ export function progress(items) {
     percent: ops.length ? Math.round(((ops.length - ops.filter((o) => OP_PENDING.has(o.status) || o.status === "running").length) / ops.length) * 100) : 0,
     statuses: act.map(itemStatus),
   };
+}
+
+// ------------------------------------------------------------------ cicli (riprocessare)
+
+/**
+ * Cosa si ripeterebbe in un nuovo ciclo.
+ * Si ripetono solo operazioni concluse con certezza: completate, oppure saltate perché
+ * già fatte prima (No Repeat). Mai quelle da verificare, in corso, in coda o fallite
+ * (per queste c'è «Ripeti falliti»).
+ * @param sel { itemIds: string[]|null (null = tutti), types: string[]|null (null = tutti) }
+ */
+export function refreshPlan(items, { itemIds = null, types = null } = {}) {
+  const repeat = [];
+  const excluded = [];
+  const want = itemIds ? new Set(itemIds) : null;
+  for (const it of activeItems(items)) {
+    if (want && !want.has(it.id)) continue;
+    for (const o of it.ops) {
+      if (types && !types.includes(o.type)) continue;
+      const base = { itemId: it.id, listingId: it.listingId, title: it.listing?.title || it.listingId, type: o.type, opId: o.id, cycle: o.cycle || 1, status: o.status, at: o.finishedAt || o.updatedAt || null, amount: o.amount ?? null };
+      if (o.status === "completed") repeat.push({ ...base, simulated: Boolean(o.result?.simulated) });
+      else if (o.status === "skipped" && o.result?.ledger === "done") repeat.push({ ...base, noRepeat: true });
+      else excluded.push({ ...base, why: o.status === "verify" ? "esito da verificare: risolvilo in Recupero, non si ripete da solo"
+        : o.status === "running" ? "in esecuzione"
+          : OP_PENDING.has(o.status) ? "già in coda in questo ciclo"
+            : o.status === "failed" ? "fallita: per riprovarla usa «Ripeti falliti»"
+              : `saltata${o.reason ? `: ${o.reason}` : ""}` });
+    }
+  }
+  return { repeat, excluded, items: new Set(repeat.map((r) => r.itemId)).size };
+}
+
+/**
+ * Applica il piano: le operazioni ripetute passano nella cronologia dell'elemento
+ * (pastCycles: data, stato, risultato, errori restano) e al loro posto arriva una
+ * nuova operazione del ciclo `cycle`, marcata newCycle (il ledger la lascia partire).
+ */
+export function applyRefresh(items, plan, { cycle, cycleId, spec = {} }) {
+  const byItem = new Map();
+  for (const r of plan.repeat) byItem.set(r.itemId, [...(byItem.get(r.itemId) || []), r.opId]);
+  const changed = [];
+  const out = items.map((it) => {
+    const ids = byItem.get(it.id);
+    if (!ids) return it;
+    changed.push(it.id);
+    const archived = it.ops.filter((o) => ids.includes(o.id));
+    const ops = it.ops.map((o) => (ids.includes(o.id)
+      ? { ...makeOp(o.type, { ...spec, cycle, cycleId }), newCycle: true, prevOpId: o.id, requireConfirm: o.requireConfirm, text: o.type === "message" && o.textLocked ? o.text : (o.type === "message" ? null : undefined), textLocked: o.type === "message" ? Boolean(o.textLocked) : undefined }
+      : o));
+    const past = [...(it.pastCycles || [])];
+    for (const o of archived) {
+      const n = o.cycle || 1;
+      let entry = past.find((p) => p.cycle === n);
+      if (!entry) { entry = { cycle: n, cycleId: o.cycleId || null, archivedAt: now(), ops: [] }; past.push(entry); }
+      entry.ops.push({ ...o });
+    }
+    past.sort((a, b) => a.cycle - b.cycle);
+    return hist({ ...it, ops, pastCycles: past }, `nuovo ciclo ${cycle}`, archived.map((o) => o.type).join(" + "));
+  });
+  return { items: out, changed };
+}
+
+/**
+ * Riepilogo dei cicli di una campagna (per la tabella «Cicli»): per ogni ciclo,
+ * annunci e operazioni per stato, prese dalle operazioni attuali e dalla cronologia.
+ */
+export function cycleSummary(items) {
+  const map = new Map();
+  const add = (n, it, o) => {
+    const c = map.get(n) || { cycle: n, items: new Set(), ops: 0, completed: 0, failed: 0, verify: 0, skipped: 0, pending: 0, first: null, last: null };
+    c.items.add(it.id);
+    c.ops++;
+    if (o.status === "completed") c.completed++;
+    else if (o.status === "failed") c.failed++;
+    else if (o.status === "verify") c.verify++;
+    else if (o.status === "skipped" || o.status === "cancelled") c.skipped++;
+    else c.pending++;
+    const at = o.finishedAt || null;
+    if (at) { c.first = c.first ? Math.min(c.first, at) : at; c.last = c.last ? Math.max(c.last, at) : at; }
+    map.set(n, c);
+  };
+  for (const it of activeItems(items)) {
+    for (const o of it.ops) add(o.cycle || 1, it, o);
+    for (const p of it.pastCycles || []) for (const o of p.ops) add(p.cycle || o.cycle || 1, it, o);
+  }
+  return [...map.values()].sort((a, b) => a.cycle - b.cycle).map((c) => ({ ...c, items: c.items.size }));
 }

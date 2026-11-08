@@ -2,6 +2,42 @@
 
 Tutte le modifiche rilevanti di Vintastic. Formato [Keep a Changelog](https://keepachangelog.com/it/1.1.0/), versioni [Semantic Versioning](https://semver.org/lang/it/).
 
+## [2.0.0] - 2026-11-07
+
+Versione MAJOR: tolta un'operazione (i commenti) con migrazione dei dati non reversibile (db_v4, impostazioni schema 4) e cambiato il modo in cui il motore gestisce gli errori.
+
+### Corretto
+- **Campagne bloccate da un messaggio** (causa principale). Un'operazione che non partiva tornava «in attesa» in testa alla coda: il motore riprendeva sempre la stessa (il messaggio del primo annuncio), e dopo 3 tentativi metteva in pausa tutta la campagna. Like e offerte degli altri annunci non arrivavano mai. Il conteggio degli errori, poi, era unico per tutti i tipi. Ora:
+  - un'operazione che non parte si riprova più tardi (1 e poi 5 minuti, configurabile) e intanto si eseguono le altre, anche sullo stesso annuncio; dopo 3 tentativi è «fallita» (ripetibile con «Ripeti falliti»);
+  - 3 errori di fila dello stesso tipo sospendono **solo quel tipo** nella campagna (notifica, riquadro nella campagna), gli altri continuano; 6 errori di fila di tipi diversi mettono in pausa la campagna (problema generale);
+  - un modulo isolato dal circuit breaker (es. «Chiedi info» assente) non mette più in pausa la campagna: le sue operazioni aspettano, le altre partono; il validatore non blocca l'avvio se resta qualcosa da fare.
+- **«Chiedi info»**, verificato sul vinted.it reale il 07/11/2026 con Claude in Chrome: il pulsante è `<button data-testid="ask-seller-button">` con l'etichetta «Chiedi info»; il clic porta, con un caricamento completo della pagina, a `/inbox/<uuid>?referrer=…`, dove `textarea#composerInput` c'è entro pochi secondi. Selettori invariati, cambiato il contesto in cui vengono cercati:
+  - la scheda di lavoro va in primo piano durante i messaggi (in background la chat può non disegnarsi; disattivabile);
+  - l'attesa della chat segue lo stato reale della pagina (indirizzo, caricamento, presenza di Vintastic, campo), non un tempo fisso: il limite riparte finché la pagina naviga;
+  - chat aperta in una **scheda nuova**: trovata, usata e chiusa;
+  - Vintastic assente sulla pagina della chat: reinserito (permesso `scripting`, senza avvisi all'installazione);
+  - pulsante cercato prima per `data-testid` e poi per etichetta esatta, sempre risalendo al pulsante;
+  - **diagnosi** nel messaggio d'errore: clic senza effetto, chat aperta ma campo assente (con il numero di campi di testo), Vintastic che non risponde, pagina in caricamento, scheda in background.
+- Invio manuale (B) non arrivato: si fermano solo i messaggi della campagna, non tutto.
+- «Ripeti falliti» fa ripartire da zero il conteggio dei tentativi.
+- «In cima» capovolgeva l'ordine degli annunci aggiunti insieme: ora il gruppo va in cima nel suo ordine.
+- Centro notifiche: la pastiglia della gravità («Avviso», «Critico») stava in una colonna da 26 px pensata per le icone del feed e copriva l'inizio del testo. Ora ha una colonna sua.
+
+### Aggiunto
+- **Cicli: riprocessare gli annunci già elaborati** senza creare una nuova campagna. «Nuovo ciclo…» nella coda (tutti, alcuni) o l'icona su un singolo annuncio. Prima di confermare si vede esattamente cosa si ripete e cosa no, con il motivo; poi l'anteprima va riapprovata. Si ripetono solo operazioni concluse con certezza (completate, o saltate perché già fatte prima); mai quelle da verificare, in corso o fallite.
+  - Ogni ciclo ha un numero e un identificativo; la cronologia dei cicli precedenti (data, esito, importo, errori) resta in ogni annuncio («cicli precedenti»), nel registro (storico con il ciclo) e nei log; tabella «Cicli» nella campagna.
+  - **No Repeat** invariato per i duplicati accidentali (stesso ciclo, altra campagna); lascia passare solo il nuovo ciclo scelto. Un esito incerto non si ripete mai, nemmeno in un nuovo ciclo.
+- Impostazioni: errori per tipo e per campagna, tentativi; Messaggi: scheda in primo piano.
+- Domande al venditore (ex «Suggerimenti AI»): pulsante «Modello» per salvarle come modello di messaggio.
+
+### Rimosso
+- **Commenti pubblici**: operazione, voce nelle campagne e nel FAB, modifica del testo, anteprima, soglia giornaliera, transizioni dei timer, feature flag, statistiche, tile «Commenta» del popup, filtri dei log, test e documentazione. I messaggi privati restano.
+
+### Migrazioni
+- **db_v3 → db_v4**: dalle code spariscono le operazioni «comment» (annotato nella cronologia dell'elemento; un elemento con soli commenti viene tolto, non cancellato); dalle campagne il tipo «comment»; dal registro le voci «comment». Campagne: ciclo 1, «Posizione» In cima se mai scelta. Rollback automatico se un passo fallisce.
+- **Impostazioni schema 3 → 4**: via le chiavi dei commenti; «Posizione» predefinita In cima solo se non c'è già una scelta.
+- Backup delle versioni 1.x importati con le stesse regole.
+
 ## [1.4.0] - 2026-11-07
 
 Messaggi privati rifatti: destinatari autorizzati, più fonti per il testo, invio in due fasi e verifiche più rigorose. Le versioni 1.3.0 e 1.3.1 non vanno usate per i messaggi.

@@ -1,4 +1,4 @@
-/** AI Contextual Commenting: suggerimenti di domande al venditore, modificabili e da copiare. */
+/** Domande al venditore: suggerimenti modificabili, da copiare o da salvare come modelli di messaggio. */
 
 import { h, icon, rpc, toast, copyText, fmtDate } from "../lib.js";
 import { listingIdFrom } from "../../shared/util.js";
@@ -34,8 +34,8 @@ export async function render(ctx) {
   } }, icon("sparkles", 16), "Genera suggerimenti");
 
   return h("div", { class: "grid" },
-    h("div", { class: "page-head" }, h("div", { class: "grow" }, h("h1", {}, "Suggerimenti AI"), h("p", {}, "Domande pertinenti all'annuncio, da modificare e copiare."))),
-    h("div", { class: "callout info small" }, h("b", {}, "Perché non vengono inviati. "), "Vinted non ha commenti pubblici sugli annunci: Vintastic genera i testi e tu li usi a mano (per esempio in un messaggio al venditore). Niente invii automatici, niente spam."),
+    h("div", { class: "page-head" }, h("div", { class: "grow" }, h("h1", {}, "Domande al venditore"), h("p", {}, "Domande pertinenti all'annuncio, da modificare e copiare."))),
+    h("div", { class: "callout info small" }, "Domande pertinenti all'annuncio. Le copi, oppure le salvi come modello e le usi nei messaggi privati delle campagne (solo verso i destinatari autorizzati)."),
     h("div", { class: "card" }, h("div", { class: "toolbar" }, h("label", { class: "field", style: { flex: 1, minWidth: "260px" } }, "Annuncio", q), h("label", { class: "field", style: { minWidth: "260px" } }, "Risultati", pick)),
       h("div", { class: "toolbar", style: { marginTop: "10px" } }, h("label", { class: "field" }, "Lingua", lang), h("label", { class: "field" }, "Tono", tone), h("label", { class: "field" }, "Quante", count), gen),
       h("div", { style: { marginTop: "12px" } }, results)),
@@ -51,5 +51,12 @@ function suggestionRow(text, rec) {
   const ta = h("input", { class: "input", value: text, "aria-label": "Suggerimento modificabile" });
   return h("div", { class: "sugg" }, ta,
     h("button", { class: "btn sm", onclick: () => copyText(ta.value) }, icon("copy", 14), "Copia"),
+    h("button", { class: "btn sm", title: "Salva come modello di messaggio (Impostazioni › Messaggi)", onclick: async () => {
+      const s = await rpc("settings.get");
+      const templates = s.messages?.templates || [];
+      if (templates.some((t) => t.text.trim() === ta.value.trim())) return toast("Modello già presente", "", "info");
+      await rpc("settings.save", { patch: { messages: { templates: [...templates, { id: `t${Date.now().toString(36)}`, name: ta.value.slice(0, 40), text: ta.value }] } } });
+      toast("Salvato come modello", "Lo trovi in Impostazioni › Messaggi e nelle campagne.", "success");
+    } }, icon("plus", 14), "Modello"),
     rec.url ? h("a", { class: "btn sm ghost", href: rec.url, target: "_blank", rel: "noopener", title: "Apri l'annuncio" }, icon("external", 14)) : null);
 }

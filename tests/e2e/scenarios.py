@@ -47,9 +47,9 @@ async def t_install_and_ui(env):
     check(any("dashboard.html#onboarding" in u for u in tabs), f"onboarding non aperto all'installazione: {tabs}")
     page = await env.open_ui()
     s = await env.rpc("settings.get")
-    check(s["schema"] == 3 and s["killSwitch"] is False, "impostazioni predefinite")
+    check(s["schema"] == 4 and s["killSwitch"] is False and s["campaignDefaults"]["addPosition"] == "start", "impostazioni predefinite")
     logs = await env.rpc("logs.query", {})
-    check(any("db_v2 → db_v3" in l["message"] for l in logs), "migrazione db registrata")
+    check(any("db_v3 → db_v4" in l["message"] for l in logs), "migrazione db registrata")
     routes = ["", "accounts", "scanner", "listings", "campaigns", "offers", "suggestions", "notifications", "stats", "logs", "health", "recovery", "settings", "help"]
     for r in routes:
         await page.goto(f"chrome-extension://{env.ext}/src/ui/dashboard.html#{r}")
@@ -71,7 +71,7 @@ async def t_install_and_ui(env):
     await page.evaluate("window.__vt.overview.version = '0.9.0'; window.__vt.refresh()")
     await page.wait_for_selector("text=Aggiornamento a metà", timeout=5000)
     check(not env.errors, f"errori JS: {env.errors}")
-    return "14 pagine, popup e side panel senza errori; onboarding aperto; db migrato a v3; avviso «motore vecchio»"
+    return "14 pagine, popup e side panel senza errori; onboarding aperto; db migrato a v4; avviso «motore vecchio»"
 
 
 async def t_onboarding_wizard(env):
@@ -208,7 +208,7 @@ async def t_campaign_real(env):
     d2 = await finished(env, c2["id"], 60)
     check(d2["progress"]["skipped"] == 6, f"No Repeat: {d2['progress']}")
     check(len(env.fake.api_writes()) == writes_before, "No Repeat: nessuna nuova scrittura su Vinted")
-    # Il like già fatto non blocca un'offerta nuova su un altro annuncio, né un commento
+    # Il like già fatto non blocca un'offerta nuova su un altro annuncio
     check(not env.fake.forbidden_requests(), f"richieste vietate: {env.fake.forbidden_requests()}")
     stats = await env.rpc("stats.get", {"range": "today"})
     check(stats["totals"]["likes"] == 3 and stats["totals"]["offers"] == 3, f"statistiche: {stats['totals']}")
@@ -480,7 +480,7 @@ async def t_offline_autopause(env):
 
 
 async def t_cleaner_suggestions(env):
-    """Pulitore notifiche (solo segna come lette, solo selezionate) e suggerimenti di commento."""
+    """Pulitore notifiche (solo segna come lette, solo selezionate), domande al venditore, commenti tolti."""
     await env.open_ui()
     await env.login_vinted()
     items = await env.rpc("cleaner.preview", {"pages": 3})
@@ -499,15 +499,14 @@ async def t_cleaner_suggestions(env):
     lst = (await env.rpc("listings.query", {"filters": {"search": "Giacca"}, "limit": 1}))["items"][0]
     rec = await env.rpc("suggest.generate", {"listingId": lst["id"], "opts": {"count": 3}})
     check(len(rec["texts"]) == 3 and any("spalle" in t for t in rec["texts"]), f"suggerimenti: {rec['texts']}")
-    c = await env.rpc("campaigns.create", {"name": "Commenti", "types": ["comment"], "dryRun": False, "listingIds": [lst["id"]]})
-    await env.fast_settings()
-    await env.rpc("campaigns.approve", {"id": c["id"]})
-    await env.rpc("campaigns.start", {"id": c["id"]})
-    done = await finished(env, c["id"], 60)
-    op = (await env.campaign(c["id"]))["items"][0]["ops"][0]
-    check(op["status"] == "skipped" and "suggerimento" in op["reason"], "commento → suggerimento, non inviato")
-    check(len(env.fake.api_writes()) == len(writes), "nessun commento inviato a Vinted")
-    return "4 notifiche segnate come lette (solo PUT /notifications); suggerimenti pertinenti; commenti mai inviati"
+    # 2.0.0: i commenti non esistono più come operazione.
+    r = await env.rpc_raw("campaigns.create", {"name": "Commenti", "types": ["comment"], "dryRun": False, "listingIds": [lst["id"]]})
+    check(r.get("__vtError") and "Scegli almeno un'operazione" in r.get("error", ""), f"campagna di soli commenti rifiutata: {r}")
+    c = await env.rpc("campaigns.create", {"name": "Misto", "types": ["like", "comment"], "dryRun": True, "listingIds": [lst["id"]]})
+    ops = [o["type"] for i in (await env.campaign(c["id"]))["items"] for o in i["ops"]]
+    check(ops == ["like"] and c["opsDefaults"]["types"] == ["like"], f"il tipo «comment» viene ignorato: {ops}")
+    check(len(env.fake.api_writes()) == len(writes), "niente inviato a Vinted")
+    return "4 notifiche segnate come lette (solo PUT /notifications); domande pertinenti; operazione «comment» non più accettata"
 
 
 async def t_backup_import(env):
@@ -668,10 +667,25 @@ async def t_health_kill(env):
     await env.rpc("health.killSwitch", {"on": False})
     await env.rpc("health.moduleKill", {"module": "like", "on": True})
     r = await env.rpc("campaigns.resume", {"id": c["id"]})
-    check(r["ok"] is False and any("like" in e for e in r["validation"]["errors"]), "modulo like spento blocca solo i like")
+    check(r["ok"] is False and any("like" in e.lower() for e in r["validation"]["errors"]), "campagna di soli like con il modulo like spento: non parte")
     sc = await scan(env)
     check(sc["status"] == "done", "lo scanner funziona con il modulo like spento")
+    await env.rpc("campaigns.stop", {"id": c["id"]})
+    # 2.0.0: con like spenti una campagna like + offerta parte, fa le offerte e i like aspettano.
+    offers_before = len(env.fake.offers)
+    res = await env.rpc("listings.query", {"filters": {"sellerId": SELLER_ID, "status": "active", "topN": 10, "range": "all"}, "limit": 10, "withIds": True})
+    cm = await env.rpc("campaigns.create", {"name": "Like spenti", "types": ["like", "offer"], "dryRun": False, "listingIds": res["ids"][6:8],
+        "timers": {"betweenOps": {"min": 0, "max": 0}, "betweenItems": {"min": 0, "max": 0}}})
+    await env.rpc("campaigns.approve", {"id": cm["id"]})
+    r = await env.rpc("campaigns.start", {"id": cm["id"]})
+    check(r["ok"] and any("Like" in w for w in r["validation"]["warnings"]), f"parte con un avviso sui like: {r['validation']}")
+    pm = await finished(env, cm["id"], 60, ("paused",))
+    data = await env.campaign(cm["id"])
+    st = {t: [o["status"] for i in data["items"] for o in i["ops"] if o["type"] == t] for t in ("like", "offer")}
+    check(st["offer"] == ["completed", "completed"] and st["like"] == ["waiting", "waiting"] and len(env.fake.offers) == offers_before + 2, f"offerte eseguite, like in attesa: {st}")
+    check(pm["pauseReason"] == "module" and "Like" in pm["pauseDetail"], f"pausa spiegata solo alla fine: {pm['pauseReason']} {pm['pauseDetail']}")
     await env.rpc("health.moduleKill", {"module": "like", "on": False})
+    await env.rpc("campaigns.stop", {"id": cm["id"]})
     # circuit breaker: formato API cambiato (conversations senza transaction) → modulo offerte isolato
     async def broken(route):
         await route.fulfill(status=200, content_type="application/json", body='{"conversation":{"id":1}}')
@@ -679,17 +693,18 @@ async def t_health_kill(env):
     c2, _ = await make_campaign(env, 1, ("offer",))
     await env.rpc("campaigns.approve", {"id": c2["id"]})
     await env.rpc("campaigns.start", {"id": c2["id"]})
-    p2 = await finished(env, c2["id"], 60, ("paused",))
+    p2 = await finished(env, c2["id"], 60, ("completed", "paused"))
     br = await env.rpc("health.breakers")
     check(br.get("offer", {}).get("state") == "open", f"circuit breaker offerte: {br}")
-    check(p2["pauseReason"] == "module", f"pausa per modulo: {p2['pauseReason']}")
+    op2 = (await env.campaign(c2["id"]))["items"][0]["ops"][0]
+    check(op2["status"] == "failed" and "isolato" in op2["error"], f"offerta fallita, modulo isolato: {op2}")
     sc = await scan(env)
     check(sc["status"] == "done", "lo scanner continua con il modulo offerte isolato")
     await env.rpc("health.resetBreaker", {"module": "offer"})
     bundle = await env.rpc("support.bundle")
     raw = json.dumps(bundle)
     check("csrf-test-token" not in raw and "v_uid=4242" not in raw, "Support Bundle senza token o cookie")
-    return "Health Center completo; kill switch globale e per modulo; circuit breaker isola le offerte e lo scanner continua"
+    return "Health Center completo; kill switch globale e per modulo (like spenti: le offerte partono, i like aspettano); circuit breaker isola le offerte e lo scanner continua"
 
 
 async def t_discord(env):
@@ -767,7 +782,7 @@ async def t_sim_then_live(env):
     await env.fast_settings()
     await env.login_vinted()
     await scan(env)
-    c, ids = await make_campaign(env, 2, ("like", "comment", "offer"), dry=True)
+    c, ids = await make_campaign(env, 2, ("like", "offer"), dry=True)
     await env.rpc("campaigns.approve", {"id": c["id"]})
     await env.rpc("campaigns.start", {"id": c["id"]})
     await finished(env, c["id"], 60)
@@ -779,7 +794,6 @@ async def t_sim_then_live(env):
     check(data["campaign"]["dryRun"] is False and data["campaign"]["status"] == "ready", f"campagna pronta in modalità reale: {data['campaign']['status']}")
     ops = [o for i in data["items"] for o in i["ops"]]
     check(sum(o["status"] == "waiting" for o in ops) == 4, f"like e offerte di nuovo in coda: {[o['status'] for o in ops]}")
-    check(all(o["status"] == "skipped" for o in ops if o["type"] == "comment"), "i commenti restano suggerimenti")
     r = await env.rpc_raw("campaigns.start", {"id": c["id"]})
     check(r["ok"] is False, "serve una nuova approvazione dell'anteprima")
     await env.rpc("campaigns.approve", {"id": c["id"]})
@@ -788,7 +802,7 @@ async def t_sim_then_live(env):
     await finished(env, c["id"], 90)
     check(env.fake.favourites == {int(i) for i in ids}, f"like inviati davvero: {env.fake.favourites}")
     check(len(env.fake.offers) == 2, f"offerte inviate davvero: {env.fake.offers}")
-    return "simulazione → «Esegui davvero su Vinted» → 2 like e 2 offerte inviate; commenti restano suggerimenti"
+    return "simulazione → «Esegui davvero su Vinted» → 2 like e 2 offerte inviate"
 
 
 async def t_like_without_item_api(env):

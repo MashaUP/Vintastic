@@ -1,11 +1,11 @@
 {
-  "version": "1.4.0",
+  "version": "2.0.0",
   "date": "2026-11-07",
-  "zip": "Vintastic-1.4.0.zip",
+  "zip": "Vintastic-2.0.0.zip",
   "notes": [
-    "Messaggi privati solo verso i destinatari autorizzati (Impostazioni › Messaggi), senza limite di numero",
-    "Testo da messaggio predefinito, modello, scritto ora, rotazione o casuale tra modelli, domanda sull'annuncio; segnaposto",
-    "Invio in due fasi con verifica del messaggio nuovo; modalità A/B per campagna",
-    "Corretti: clic dei messaggi fuori dal divieto d'acquisto, ledger bloccato dopo due tentativi non partiti, pagina cambiata durante un comando"
+    "Campagne: un errore di un tipo (es. la chat che non si apre) non blocca più like e offerte; nuovi tentativi distanziati",
+    "«Chiedi info»: pulsante verificato su vinted.it, attesa della chat basata sullo stato della pagina, diagnosi dei casi",
+    "Nuovo: cicli per riprocessare gli annunci già completati, con cronologia e No Repeat per i duplicati",
+    "Tolti i commenti pubblici (Vinted non li ha); «Posizione» predefinita In cima; notifiche non più coperte"
   ]
 }

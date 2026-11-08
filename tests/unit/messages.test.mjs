@@ -32,9 +32,10 @@ const settingsWith = (patch = {}) => {
 const campaign = (message = { source: "default" }, extra = {}) => ({ id: "c1", accountId: ACC, dryRun: false, opsDefaults: { types: ["message"], message }, sort: { seed: 7 }, ...extra });
 const messageItems = (listings = [listing()]) => Q.addItems([], listings, { types: ["message"] }, "c1").items;
 
-test("operazione distinta dal commento, nessun testo finché non c'è l'anteprima", () => {
-  assert.ok(OP_TYPES.includes("message") && OP_TYPES.includes("comment"));
+test("messaggio privato presente, commenti tolti; nessun testo finché non c'è l'anteprima", () => {
+  assert.deepEqual(OP_TYPES, ["like", "offer", "message"]);
   assert.equal(OP_LABEL.message, "Messaggio privato");
+  assert.equal(OP_LABEL.comment, undefined);
   const op = Q.makeOp("message");
   assert.equal(op.type, "message");
   assert.equal(op.text, null);
@@ -47,7 +48,7 @@ test("predefiniti: modalità A, soglia 10 al giorno, nessun destinatario, transi
   assert.deepEqual(DEFAULT_SETTINGS.messages.recipients, []);
   assert.equal(DEFAULT_SETTINGS.messages.manualWaitSeconds, 240);
   assert.ok(DEFAULT_SETTINGS.messages.text.length > 0);
-  for (const t of ["like", "comment", "offer"]) {
+  for (const t of ["like", "offer"]) {
     assert.ok(DEFAULT_SETTINGS.timers.transitions[`${t}>message`], `${t}>message`);
     assert.ok(DEFAULT_SETTINGS.timers.transitions[`message>${t}`], `message>${t}`);
   }

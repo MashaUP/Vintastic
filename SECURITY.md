@@ -43,6 +43,7 @@
 | `webRequest` | osservare (senza modificare) le intestazioni CSRF/anon-id delle richieste di Vinted |
 | `downloads` | salvare lo zip di un aggiornamento verificato |
 | `sidePanel` | pannello laterale |
+| `scripting` | reinserire il content script di Vintastic (gli stessi file del manifest) nella pagina della chat, se Vinted la carica senza; solo sulle pagine `www.vinted.*` già autorizzate. Nessun avviso all'installazione |
 | host `www.vinted.*` | content script e API |
 | host GitHub | aggiornamenti e link |
 | facoltativi: `discord.com`, `localhost`, `https://*/*` | richiesti solo se configuri Discord o un endpoint AI |

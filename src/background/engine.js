@@ -25,17 +25,16 @@ import * as tabs from "./tabs.js";
 import * as health from "./health.js";
 import * as session from "./session.js";
 import * as connectivity from "./connectivity.js";
-import { suggestFor } from "./ai.js";
 import { uid, sleep, stableStringify } from "../shared/util.js";
 import { OP_LABEL, OP_TYPES } from "../shared/constants.js";
 import { transitionCampaign, OP_PENDING } from "../shared/states.js";
-import { ledgerKey, canInteract, ledgerUpdate } from "../shared/ledger.js";
+import { ledgerKey, cycleKey, canInteract, ledgerUpdate } from "../shared/ledger.js";
 import { delayBefore, checkLimit, countOp } from "../shared/timers.js";
 import * as Q from "../shared/queue.js";
 import { validateCampaign, makeSnapshot, diffSnapshot } from "../shared/policy.js";
 import { computeOffer } from "../shared/offer.js";
 import { sortItems } from "../shared/filters.js";
-import { fillMessageOps, recipientCheck, cleanRecipients, MANUAL_WAIT_DEFAULT } from "../shared/messages.js";
+import { fillMessageOps, recipientCheck, cleanRecipients, chatDiagnosis, MANUAL_WAIT_DEFAULT } from "../shared/messages.js";
 
 const ALARM = "vt-engine";
 let busy = false;
@@ -76,6 +75,7 @@ const histC = (c, action, detail = "") => {
 
 export async function createCampaign(input) {
   const s = await getSettings();
+  if (input.types && !input.types.some((t) => OP_TYPES.includes(t))) throw new Error("Scegli almeno un'operazione: like, offerta o messaggio privato.");
   const sess = await session.current();
   const c = {
     id: uid("c_"),
@@ -88,21 +88,24 @@ export async function createCampaign(input) {
     createdAt: Date.now(),
     opsDefaults: {
       types: (input.types || ["like"]).filter((t) => OP_TYPES.includes(t)),
-      order: input.order || OP_TYPES.slice(),
+      order: (input.order || OP_TYPES).filter((t) => OP_TYPES.includes(t)),
       offerCfg: input.offerCfg || s.offer?.defaultRules || null,
-      comment: input.comment || "",
       message: input.message || { source: "default" },   // vedi shared/messages.js: messageConfig
       requireConfirm: input.requireConfirm || {},
     },
     timers: input.timers || {},
     skipRules: { notActive: true, ...(input.skipRules || {}) },
     sort: { mode: input.sortMode || "manual", seed: Date.now() % 100000 },
+    addPosition: input.addPosition === "end" ? "end" : input.addPosition === "start" ? "start" : (s.campaignDefaults?.addPosition === "end" ? "end" : "start"),
     snapshot: null,
     history: [],
     progress: null,
+    cycle: null,                                   // impostato qui sotto: { n, id, startedAt }
+    cycles: [],                                    // cicli conclusi (cronologia)
     consecutiveFailures: 0,
     blockedCount: 0,
   };
+  c.cycle = { n: 1, id: `${c.id}-1`, startedAt: Date.now() };
   histC(c, "creata", c.dryRun ? "simulazione" : "reale");
   await saveCampaign(c, []);
   await activity("campaign", `Campagna creata: ${c.name}`, { campaignId: c.id });
@@ -127,14 +130,20 @@ async function prepare(c, items) {
   return fillMessageOps(c, fillOfferAmounts(c, items), await getSettings());
 }
 
-export function addToCampaign(campaignId, listings, spec = {}, where = "end") {
+/**
+ * @param where "start" (In cima) | "end" (In fondo) | null = la «Posizione» salvata nella campagna.
+ *              Una scelta esplicita viene salvata nella campagna e riproposta la volta dopo.
+ */
+export function addToCampaign(campaignId, listings, spec = {}, where = null) {
   return withLock(async () => {
     const c = await getCampaign(campaignId);
     if (!c) throw new Error("Campagna non trovata");
+    if (where === "start" || where === "end") c.addPosition = where;
+    else where = c.addPosition === "end" ? "end" : "start";
     const items = await campaignItems(campaignId);
     const sess = await session.current();
     const withScan = listings.map((l) => ({ ...l, scannedBy: l.scannedBy || sess.accountId || null }));
-    const r = Q.addItems(items, withScan, { ...c.opsDefaults, ...spec, order: c.opsDefaults.order }, campaignId, where);
+    const r = Q.addItems(items, withScan, { ...c.opsDefaults, ...spec, order: c.opsDefaults.order, cycle: c.cycle?.n || 1, cycleId: c.cycle?.id || null }, campaignId, where);
     const next = await prepare(c, r.items);
     await saveItems(next.filter((i) => r.changed.includes(i.id)));
     histC(c, "aggiunti annunci", `${r.changed.length} aggiunti/aggiornati, ${r.rejected.length} scartati`);
@@ -144,6 +153,58 @@ export function addToCampaign(campaignId, listings, spec = {}, where = "end") {
     await activity("queue", `${r.changed.length} annunci aggiunti a «${c.name}»`, { campaignId });
     if (c.status === "running") kick();
     return { added: r.changed.length, rejected: r.rejected };
+  });
+}
+
+// ------------------------------------------------------------------ cicli
+
+/** Anteprima di un nuovo ciclo: cosa si ripeterebbe e cosa no (con il motivo). Non cambia niente. */
+export async function refreshPreview(campaignId, sel = {}) {
+  const c = await getCampaign(campaignId);
+  if (!c) throw new Error("Campagna non trovata");
+  const items = await campaignItems(campaignId);
+  const plan = Q.refreshPlan(items, sel);
+  return { ...plan, nextCycle: nextCycleNumber(c, items), dryRun: c.dryRun, status: c.status };
+}
+
+/** Il ciclo corrente si riusa se non è ancora partito niente (tutte le sue operazioni in attesa). */
+function nextCycleNumber(c, items) {
+  const n = c.cycle?.n || 1;
+  const ops = Q.activeItems(items).flatMap((i) => i.ops.filter((o) => (o.cycle || 1) === n));
+  return n > 1 && ops.length && ops.every((o) => OP_PENDING.has(o.status)) ? n : n + 1;
+}
+
+/**
+ * Nuovo ciclo: riattiva le operazioni già concluse degli annunci scelti, senza cancellare
+ * niente (la cronologia resta in pastCycles, nel ledger e nei log). Serve una conferma
+ * esplicita e poi una nuova approvazione dell'anteprima: è una scelta intenzionale.
+ */
+export function startNewCycle(campaignId, { itemIds = null, types = null, confirm = false } = {}) {
+  return withLock(async () => {
+    if (!confirm) throw new Error("Serve la conferma esplicita per ripetere operazioni già eseguite.");
+    const c = await getCampaign(campaignId);
+    if (!c) throw new Error("Campagna non trovata");
+    let items = await campaignItems(campaignId);
+    const plan = Q.refreshPlan(items, { itemIds, types });
+    if (!plan.repeat.length) return { ok: false, rejected: "Niente da ripetere: nessuna operazione conclusa negli annunci scelti.", plan };
+    const n = nextCycleNumber(c, items);
+    const id = n === (c.cycle?.n || 1) && c.cycle?.id ? c.cycle.id : `${c.id}-${n}-${Date.now().toString(36)}`;
+    if (n !== (c.cycle?.n || 1)) {
+      c.cycles = [...(c.cycles || []), { ...(c.cycle || { n: 1, id: `${c.id}-1` }), endedAt: Date.now() }];
+      c.cycle = { n, id, startedAt: Date.now() };
+    }
+    const r = Q.applyRefresh(items, plan, { cycle: n, cycleId: id, spec: { ...c.opsDefaults } });
+    items = await prepare(c, r.items);
+    await saveItems(items.filter((i) => r.changed.includes(i.id)));
+    const what = Object.entries(plan.repeat.reduce((m, x) => ({ ...m, [x.type]: (m[x.type] || 0) + 1 }), {})).map(([t, k]) => `${k} ${OP_LABEL[t].toLowerCase()}`).join(", ");
+    histC(c, `ciclo ${n}`, `${plan.items} annunci: ${what}`);
+    c.snapshot = null;                       // operazioni ripetute = nuova anteprima da approvare
+    if (["completed", "stopped"].includes(c.status)) Object.assign(c, transitionCampaign(c, "ready"));
+    if (c.status === "running") Object.assign(c, transitionCampaign(c, "paused"), { pauseReason: "snapshot", pauseDetail: `Nuovo ciclo ${n}: rivedi e approva l'anteprima, poi riprendi.`, nextAt: null });
+    await saveCampaign(c, items);
+    await log({ level: "info", category: "campaign", campaignId, message: `Ciclo ${n} di «${c.name}»: ${plan.repeat.length} operazioni da ripetere su ${plan.items} annunci (${what})` });
+    await activity("campaign", `Nuovo ciclo ${n} per «${c.name}»: ${what}`, { campaignId });
+    return { ok: true, cycle: n, repeated: plan.repeat.length, items: plan.items, excluded: plan.excluded.length };
   });
 }
 
@@ -204,7 +265,7 @@ export function mutateQueue(campaignId, action, args = {}) {
     await saveItems(items);
     histC(c, action, detail);
     if (c.snapshot && ["running", "paused", "ready"].includes(c.status)) c.snapshot = makeSnapshot(items);
-    if (c.status === "completed" && Q.nextOp(items)) Object.assign(c, transitionCampaign(c, "ready"));
+    if (c.status === "completed" && Q.hasPending(items)) Object.assign(c, transitionCampaign(c, "ready"));
     await saveCampaign(c, items);
     if (c.status === "running") kick();
     return { ok: !rejected, rejected };
@@ -377,7 +438,10 @@ export function start(id) {
     if (!v.ok) return { ok: false, validation: v };
     const from = c.status;
     if (from === "draft") Object.assign(c, transitionCampaign(c, "ready"));
-    Object.assign(c, transitionCampaign(c, "running"), { startedAt: c.startedAt || Date.now(), pauseReason: null, pauseDetail: null, autoPaused: false, resumeAt: null, consecutiveFailures: 0, nextAt: Date.now() });
+    // Riprendere = nuova possibilità per tutti i tipi: via sospensioni, contatori e attese dei nuovi tentativi.
+    Object.assign(c, transitionCampaign(c, "running"), { startedAt: c.startedAt || Date.now(), pauseReason: null, pauseDetail: null, autoPaused: false, resumeAt: null, consecutiveFailures: 0, typeFailures: {}, suspended: {}, nextAt: Date.now() });
+    const retry = items.filter((i) => i.ops.some((o) => o.retryAfter && OP_PENDING.has(o.status)));
+    if (retry.length) await saveItems(retry.map((i) => ({ ...i, ops: i.ops.map((o) => (OP_PENDING.has(o.status) ? { ...o, retryAfter: null } : o)) })));
     histC(c, from === "paused" ? "ripresa" : "avviata", c.dryRun ? "simulazione" : "reale");
     await saveCampaign(c, items);
     await notify({ category: "campaignStart", level: "info", title: `${from === "paused" ? "Ripresa" : "Avviata"}: ${c.name}`, body: c.dryRun ? "Simulazione: niente viene inviato a Vinted." : `${c.progress.pending} operazioni in coda.`, link: `#campaigns/${c.id}`, campaignId: c.id });
@@ -464,7 +528,8 @@ async function setLedger(accountId, item, op, status, campaignId, extra = {}) {
   const prev = await db.get("ledger", key);
   const entry = ledgerUpdate(prev, {
     key, accountId, listingId: item.listingId, sellerId: item.listing?.sellerId || null, type: op.type,
-    status, campaignId, opId: op.id, amount: op.amount ?? null, simulated: false, title: item.listing?.title || "", ...extra,
+    status, campaignId, opId: op.id, amount: op.amount ?? null, simulated: false, title: item.listing?.title || "",
+    cycle: op.cycle || 1, cycleKey: cycleKey(campaignId, op.cycleId || op.cycle), ...extra,
   });
   await db.put("ledger", entry);
   return entry;
@@ -494,7 +559,7 @@ function claimOp(itemId, opId, extra = {}) {
     const item = await db.get("items", itemId);
     const op = item?.ops.find((o) => o.id === opId);
     if (!item || item.removed || !op || !OP_PENDING.has(op.status)) return null;
-    return updateOpNoLock(itemId, opId, { status: "running", startedAt: Date.now(), ...extra });
+    return updateOpNoLock(itemId, opId, { status: "running", startedAt: Date.now(), retryAfter: null, ...extra });
   });
 }
 
@@ -534,18 +599,20 @@ export async function tick() {
     const c = running[0];
     if (c.nextAt && c.nextAt > Date.now() + 200) { schedule(c.nextAt); return; }
     const items = await campaignItems(c.id);
-    const next = Q.nextOp(items);
+    const blocked = await blockedTypes(c);
+    const next = Q.nextOp(items, { blocked: new Set(blocked.keys()) });
     if (!next) {
       if (items.some((i) => i.ops.some((o) => o.status === "running"))) { schedule(Date.now() + 5000); return; }
-      await completeCampaign(c);
-      kick();
+      if (!Q.hasPending(items)) { await completeCampaign(c); kick(); return; }
+      await waitOrPause(c, items, blocked);
       return;
     }
     await runOp(c, next.item, next.op, settings);
     const fresh = await getCampaign(c.id);
     if (fresh?.status === "running") {
-      const after = Q.nextOp(await campaignItems(c.id));
-      if (!after) { await completeCampaign(fresh); }
+      const freshItems = await campaignItems(c.id);
+      const after = Q.nextOp(freshItems, { blocked: new Set((await blockedTypes(fresh)).keys()) });
+      if (!after) { if (!Q.hasPending(freshItems)) await completeCampaign(fresh); }
       else {
         const d = delayBefore(after.op, fresh.lastOp, fresh.lastOp?.itemId === after.item.id, fresh.timers, settings.timers);
         if (fresh.dryRun) d.seconds = Math.min(d.seconds, 2);       // la simulazione non aspetta davvero
@@ -564,12 +631,48 @@ export async function tick() {
   }
 }
 
+/**
+ * Tipi che in questa campagna non si eseguono adesso, con il motivo: sospesi dopo errori di fila
+ * (solo quel tipo: gli altri continuano) o modulo non disponibile (circuit breaker, kill switch).
+ */
+async function blockedTypes(c) {
+  const out = new Map();
+  for (const [t, v] of Object.entries(c.suspended || {})) out.set(t, `sospesi in questa campagna: ${v.reason}`);
+  for (const t of OP_TYPES) {
+    if (out.has(t)) continue;
+    const a = await health.moduleAvailable(t);
+    if (!a.ok) out.set(t, a.reason);
+  }
+  return out;
+}
+
+/** Niente da eseguire adesso: si aspetta il prossimo nuovo tentativo, oppure restano solo tipi bloccati → pausa. */
+async function waitOrPause(c, items, blocked) {
+  const w = Q.waitingState(items, { blocked: new Set(blocked.keys()) });
+  if (w.retryAt) {
+    const at = new Date(w.retryAt).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const updated = await patchCampaign(c.id, (x) => {
+      if (x.status !== "running") return;
+      x.nextAt = w.retryAt;
+      x.nextLabel = `Nuovo tentativo alle ${at}`;
+      x.nextOp = null;
+    });
+    if (updated?.status === "running") broadcast("vt:timer", { campaignId: c.id, nextAt: updated.nextAt, label: updated.nextLabel });
+    schedule(w.retryAt);
+    return;
+  }
+  const why = w.blockedTypes.map((t) => `${OP_LABEL[t]}: ${blocked.get(t)}`).join(" · ");
+  const onlyModules = w.blockedTypes.every((t) => !c.suspended?.[t]);
+  const manual = w.blockedTypes.length && w.blockedTypes.every((t) => c.suspended?.[t]?.kind === "manual");
+  await pause(c.id, manual ? "manual" : onlyModules ? "module" : "errors", `Restano solo operazioni bloccate. ${why}. Le altre sono state eseguite. Premi Riprendi per riprovare.`);
+}
+
 async function completeCampaign(c) {
   return withLock(async () => {
     const cur = await getCampaign(c.id);
     if (cur.status !== "running") return;
     const items = await campaignItems(c.id);
-    if (Q.nextOp(items) || items.some((i) => i.ops.some((o) => o.status === "running"))) return;   // aggiunti nel frattempo
+    if (Q.hasPending(items) || items.some((i) => i.ops.some((o) => o.status === "running"))) return;   // aggiunti nel frattempo
     Object.assign(cur, transitionCampaign(cur, "completed"), { completedAt: Date.now(), nextAt: null, current: null });
     histC(cur, "completata");
     await saveCampaign(cur, items);
@@ -582,7 +685,7 @@ async function completeCampaign(c) {
 async function finishOp(c, item, op, status, data = {}) {
   const t0 = op.startedAt || Date.now();
   await updateOp(c.id, item.id, op.id, { status, finishedAt: Date.now(), result: data.result || null, error: data.error || null, retryable: data.retryable, reason: data.reason || null, listingPatch: data.listingPatch });
-  await journal({ phase: "result", opId: op.id, itemId: item.id, campaignId: c.id, accountId: c.accountId, listingId: item.listingId, type: op.type, status: data.statsStatus || status, simulated: Boolean(c.dryRun), durationMs: Date.now() - t0, amount: op.amount ?? null });
+  await journal({ phase: "result", opId: op.id, itemId: item.id, campaignId: c.id, accountId: c.accountId, listingId: item.listingId, type: op.type, status: data.statsStatus || status, simulated: Boolean(c.dryRun), durationMs: Date.now() - t0, amount: op.amount ?? null, cycle: op.cycle || 1 });
   await patchCampaign(c.id, (cur) => {
     cur.lastOp = { type: op.type, itemId: item.id, at: Date.now(), status };
     cur.current = null;
@@ -597,13 +700,14 @@ async function runOp(c, item, op, settings) {
   if (c.skipRules?.notActive && item.listing?.status && item.listing.status !== "active") {
     return finishOp(c, item, op, "skipped", { reason: `Annuncio non attivo (${item.listing.status})` });
   }
-  const mod = op.type === "comment" ? "comment" : op.type;
-  const avail = await health.moduleAvailable(mod);
-  if (!avail.ok) { await pauseNoLockSafe(c.id, "module", `${label}: ${avail.reason}`); return; }
+  // Modulo non disponibile: il tick non sceglie le sue operazioni (vedi blockedTypes); qui solo per sicurezza.
+  const avail = await health.moduleAvailable(op.type);
+  if (!avail.ok) return null;
 
-  if (op.type !== "comment") {
+  {
+    // No Repeat: blocca i duplicati accidentali; lascia passare solo un nuovo ciclo scelto dall'utente.
     const entry = await db.get("ledger", ledgerKey(c.accountId, item.listingId, op.type));
-    const decision = canInteract(entry);
+    const decision = canInteract(entry, { cycleKey: cycleKey(c.id, op.cycleId || op.cycle), newCycle: Boolean(op.newCycle) });
     if (!decision.allowed && !c.dryRun) {
       return finishOp(c, item, op, "skipped", { reason: `No Repeat: ${decision.reason}`, result: { ledger: decision.code } });
     }
@@ -618,15 +722,6 @@ async function runOp(c, item, op, settings) {
     await patchCampaign(c.id, (cur) => { cur.pendingConfirm = { itemId: item.id, opId: op.id, type: op.type, title, amount: op.amount ?? null }; });
     await pauseNoLockSafe(c.id, "confirm", `${label} su «${title}»${op.amount ? ` · ${op.amount} €` : ""}: premi Conferma per procedere.`);
     return;
-  }
-
-  // 2. Commenti: Vinted non ha commenti pubblici sugli annunci → suggerimenti da copiare.
-  if (op.type === "comment") {
-    const listing = (await db.get("listings", item.listingId)) || item.listing;
-    const sugg = op.comment ? [op.comment] : await suggestFor(listing).catch(() => []);
-    await db.put("suggestions", { id: uid("s_"), listingId: item.listingId, title: listing.title, url: listing.url, at: Date.now(), texts: sugg, campaignId: c.id, source: op.comment ? "manuale" : "automatico", used: false });
-    await activity("comment", `Commento suggerito per «${title}»`, { campaignId: c.id, listingId: item.listingId });
-    return finishOp(c, item, op, "skipped", { reason: "Vinted non supporta commenti pubblici: suggerimento pronto da copiare", result: { suggestions: sugg }, statsStatus: "suggested" });
   }
 
   // 3. Soglie giornaliere (solo modalità reale).
@@ -708,17 +803,75 @@ const pauseNoLockSafe = (id, reason, detail, opts) => pause(id, reason, detail, 
 
 const msgListing = (item) => ({ id: item.listingId, sellerId: item.listing.sellerId, url: item.listing.url });
 
-/** Aspetta il campo #composerInput nella scheda (la chat può aprirsi nella stessa pagina o in una nuova). */
-async function waitComposer(tabId, timeoutMs) {
-  const end = Date.now() + timeoutMs;
-  let last = { ready: false };
-  while (Date.now() < end) {
-    const r = await tabs.sendToTab(tabId, { type: "vt:msgComposer" }, 4000).catch(() => null);   // pagina in caricamento: si riprova
-    if (r) last = r;
-    if (r?.challenge || r?.ready) return r;
-    await sleep(500);
+/** Schede aperte da una scheda: Vinted potrebbe aprire la chat in una scheda nuova. */
+function watchOpenedTabs(openerId) {
+  const found = [];
+  const fn = (tab) => { if (tab?.openerTabId === openerId) found.push(tab.id); };
+  chrome.tabs?.onCreated?.addListener(fn);
+  return { list: () => found.slice(), stop: () => chrome.tabs?.onCreated?.removeListener(fn) };
+}
+
+/** Indirizzo (senza query) e stato di caricamento di una scheda, per decidere e per la diagnostica. */
+async function tabInfo(tabId) {
+  try {
+    const t = await chrome.tabs.get(tabId);
+    return { url: String(t.url || t.pendingUrl || "").split("?")[0], status: t.status, active: t.active };
+  } catch {
+    return { url: null, status: "closed", active: false };
   }
-  return last;
+}
+
+/** Content script assente su una pagina già caricata: lo si reinserisce (stessi file del manifest). */
+async function reinject(tabId) {
+  if (!chrome.scripting?.executeScript) return false;
+  try {
+    const files = chrome.runtime.getManifest().content_scripts?.[0]?.js || [];
+    await chrome.scripting.executeScript({ target: { tabId }, files });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Aspetta la chat guardando lo stato reale, non un'attesa fissa: indirizzo della scheda (o di una
+ * scheda nuova aperta dal clic), caricamento, presenza di Vintastic sulla pagina (se manca su una
+ * pagina caricata viene reinserito), campo #composerInput. Il tempo massimo riparte quando
+ * l'indirizzo cambia (navigazione in corso).
+ */
+async function waitChat(tabId, watcher, { quietMs = 25_000, maxMs = 60_000 } = {}) {
+  const t0 = Date.now();
+  const d = { polls: 0, noContent: 0, reinjected: false, newTab: false, url: null, status: null, visible: null, askButton: null, textareas: null, composer: false };
+  let target = tabId;
+  let prevUrl = null;
+  let lastChange = Date.now();
+  while (Date.now() - t0 < maxMs && Date.now() - lastChange < quietMs) {
+    const opened = watcher.list().filter((id) => id !== tabId);
+    if (opened.length && target === tabId) {
+      target = opened[opened.length - 1];
+      d.newTab = true;
+      await tabs.claim(target, "chat", null).catch(() => {});
+    }
+    const info = await tabInfo(target);
+    Object.assign(d, { url: info.url, status: info.status });
+    if (info.url !== prevUrl || info.status === "loading") { prevUrl = info.url; lastChange = Date.now(); }
+    d.polls++;
+    let r = null;
+    try {
+      r = await tabs.sendToTab(target, { type: "vt:msgComposer" }, 4000);
+    } catch (e) {
+      if (e.notSent) {
+        d.noContent++;
+        if (info.status === "complete" && d.noContent >= 4 && !d.reinjected) d.reinjected = await reinject(target);
+      }
+    }
+    if (r) Object.assign(d, { visible: r.visible ?? d.visible, askButton: r.askButton ?? d.askButton, textareas: r.textareas ?? d.textareas, composer: Boolean(r.ready) });
+    if (r?.challenge) return { challenge: true, tabId: target, diag: d };
+    if (r?.ready) return { ready: true, tabId: target, diag: { ...d, waitedMs: Date.now() - t0 } };
+    if (r?.loggedIn === false && !String(info.url || "").includes("/items/")) return { loggedIn: false, tabId: target, diag: d };
+    await sleep(400);
+  }
+  return { ready: false, tabId: target, diag: { ...d, waitedMs: Date.now() - t0 } };
 }
 
 /** Controlla ogni secondo se il nuovo messaggio è comparso nella conversazione. */
@@ -760,59 +913,84 @@ async function runMessage(c, item, op, settings, tabId) {
   const ms = settings.messages || {};
   const mode = op.mode === "manual" ? "manual" : "auto";
   const allowed = cleanRecipients(ms.recipients).map((r) => r.id);
-  let open;
+  const title = item.listing?.title?.slice(0, 50) || item.listingId;
+  // In una scheda in background la chat di Vinted può non disegnarsi: per i messaggi la scheda va in primo piano.
+  if (ms.focusTab !== false || mode === "manual") await tabs.focus(tabId);
+  const watcher = watchOpenedTabs(tabId);
+  let chatTab = tabId;
   try {
-    open = await tabs.sendToTab(tabId, { type: "vt:msgOpen", listing: msgListing(item), allowed, self: c.accountId?.split("@")[0] || null }, 30_000);
-  } catch (e) {
-    if (e.notSent) return notSent(c, item, op, "error", e.message);
-    open = { outcome: "opened" };     // la pagina è cambiata subito dopo il clic: la chat si sta aprendo
-  }
-  if (open?.outcome !== "opened") return applyOutcome(c, item, op, { ...open, sent: false }, tabId);
-
-  const chat = await waitComposer(tabId, 30_000);
-  if (chat.challenge) return notSent(c, item, op, "captcha", "Vinted chiede una verifica per aprire la chat", tabId);
-  if (chat.loggedIn === false) return notSent(c, item, op, "auth", "Sessione Vinted non attiva nella chat", tabId);
-  if (!chat.ready) return notSent(c, item, op, "error", "La chat non si è aperta: campo del messaggio (#composerInput) non trovato entro 30 secondi");
-
-  // Punto di non ritorno: da qui un esito mancante = DA VERIFICARE, mai ripetuto da solo.
-  await journal({ phase: "sending", opId: op.id, itemId: item.id, campaignId: c.id, type: op.type, listingId: item.listingId });
-  if (mode === "manual") {
-    await tabs.focus(tabId);
-    await patchCampaign(c.id, (cur) => { if (cur.current) cur.current.awaitingUser = true; });
-    await notify({ category: "info", level: "info", title: "Premi Invia su Vinted", body: `Il messaggio per «${item.listing?.title?.slice(0, 50) || item.listingId}» è pronto nella chat. Controllalo e premi Invia.`, link: `#campaigns/${c.id}`, campaignId: c.id, groupKey: `manual-${c.id}` });
-  }
-  let fill;
-  try {
-    fill = await tabs.sendToTab(tabId, { type: "vt:msgFill", text: op.text, mode }, 20_000);
-  } catch (e) {
-    if (e.notSent) return notSent(c, item, op, "error", e.message);
-    fill = { outcome: "uncertain", sent: true, message: `Pagina della chat persa durante la compilazione: ${e.message}` };
-  }
-  if (fill?.outcome !== "filled") return applyOutcome(c, item, op, fill || { outcome: "uncertain", sent: true, message: "Nessuna risposta dalla chat" }, tabId);
-
-  const waitS = mode === "manual" ? Math.max(5, Math.min(240, Number(ms.manualWaitSeconds) || MANUAL_WAIT_DEFAULT)) : 45;
-  const st = await waitSent(tabId, waitS * 1000);
-  if (st.state === "challenge") {
-    if (st.attempted || mode === "auto") return applyOutcome(c, item, op, { outcome: "uncertain", sent: true, message: "Verifica di Vinted comparsa durante l'invio: controlla la chat prima di riprovare" }, tabId);
-    return notSent(c, item, op, "captcha", "Vinted chiede una verifica nella chat (messaggio non inviato)", tabId);
-  }
-  if (st.state !== "sent") {
-    if (mode === "manual" && !st.attempted && st.state === "pending" && !st.cleared) {
-      // Il testo è ancora nel campo e nessuno ha premuto Invia: certamente non inviato.
-      await finishOp(c, item, op, "failed", { error: `Invio manuale non arrivato entro ${waitS} secondi: il testo è rimasto nel campo, niente è stato inviato`, retryable: true });
-      await setLedger(c.accountId, item, op, "failed", c.id, { result: "manualTimeout" });
-      return pause(c.id, "manual", `Nessun invio entro ${waitS} secondi per «${item.listing?.title?.slice(0, 50) || item.listingId}». Quando sei pronto premi Riprendi; il messaggio saltato si ripete con «Ripeti falliti».`);
+    let open;
+    try {
+      open = await tabs.sendToTab(tabId, { type: "vt:msgOpen", listing: msgListing(item), allowed, self: c.accountId?.split("@")[0] || null }, 30_000);
+    } catch (e) {
+      if (e.notSent) return notSent(c, item, op, "error", e.message);
+      open = { outcome: "opened" };     // la pagina è cambiata subito dopo il clic: la chat si sta aprendo
     }
-    const why = st.state === "unknown" ? "la pagina della chat è cambiata prima della conferma"
-      : st.cleared ? "il campo si è svuotato ma il messaggio non compare nella conversazione"
-        : "nessun messaggio nuovo nella conversazione";
-    return applyOutcome(c, item, op, { outcome: "uncertain", sent: true, message: `Invio non confermato: ${why}. Controlla la chat prima di riprovare` }, tabId);
-  }
+    if (open?.outcome !== "opened") return applyOutcome(c, item, op, { ...open, sent: false }, tabId);
 
-  await applyOutcome(c, item, op, { outcome: "done", sent: true, message: `Messaggio inviato e verificato (${mode === "manual" ? "B, inviato da te" : "A, automatico"})` }, tabId);
-  if (!(await returnToListing(tabId, c, item))) {
-    await log({ level: "warn", category: "op", campaignId: c.id, listingId: item.listingId, opType: op.type, message: "Messaggio inviato e verificato, ma il ritorno all'annuncio non è confermato: la prossima operazione riapre la pagina giusta" });
+    const chat = await waitChat(tabId, watcher);
+    chatTab = chat.tabId;
+    if (chat.challenge) return notSent(c, item, op, "captcha", "Vinted chiede una verifica per aprire la chat", chatTab);
+    if (chat.loggedIn === false) return notSent(c, item, op, "auth", "Sessione Vinted non attiva nella chat", chatTab);
+    if (!chat.ready) return notSent(c, item, op, "error", `La chat non si è aperta: ${chatDiagnosis(chat.diag)}`, null, chat.diag);
+    if (chat.diag.newTab) await log({ level: "info", category: "op", campaignId: c.id, listingId: item.listingId, opType: op.type, message: "La chat si è aperta in una scheda nuova: Vintastic la usa e poi la chiude" });
+
+    // Punto di non ritorno: da qui un esito mancante = DA VERIFICARE, mai ripetuto da solo.
+    await journal({ phase: "sending", opId: op.id, itemId: item.id, campaignId: c.id, type: op.type, listingId: item.listingId, cycle: op.cycle || 1 });
+    if (mode === "manual") {
+      await tabs.focus(chatTab);
+      await patchCampaign(c.id, (cur) => { if (cur.current) cur.current.awaitingUser = true; });
+      await notify({ category: "info", level: "info", title: "Premi Invia su Vinted", body: `Il messaggio per «${title}» è pronto nella chat. Controllalo e premi Invia.`, link: `#campaigns/${c.id}`, campaignId: c.id, groupKey: `manual-${c.id}` });
+    }
+    let fill;
+    try {
+      fill = await tabs.sendToTab(chatTab, { type: "vt:msgFill", text: op.text, mode }, 20_000);
+    } catch (e) {
+      if (e.notSent) return notSent(c, item, op, "error", e.message);
+      fill = { outcome: "uncertain", sent: true, message: `Pagina della chat persa durante la compilazione: ${e.message}` };
+    }
+    if (fill?.outcome !== "filled") return applyOutcome(c, item, op, fill || { outcome: "uncertain", sent: true, message: "Nessuna risposta dalla chat" }, chatTab);
+
+    const waitS = mode === "manual" ? Math.max(5, Math.min(240, Number(ms.manualWaitSeconds) || MANUAL_WAIT_DEFAULT)) : 45;
+    const st = await waitSent(chatTab, waitS * 1000);
+    if (st.state === "challenge") {
+      if (st.attempted || mode === "auto") return applyOutcome(c, item, op, { outcome: "uncertain", sent: true, message: "Verifica di Vinted comparsa durante l'invio: controlla la chat prima di riprovare" }, chatTab);
+      return notSent(c, item, op, "captcha", "Vinted chiede una verifica nella chat (messaggio non inviato)", chatTab);
+    }
+    if (st.state !== "sent") {
+      if (mode === "manual" && !st.attempted && st.state === "pending" && !st.cleared) {
+        // Il testo è ancora nel campo e nessuno ha premuto Invia: certamente non inviato.
+        // Si fermano solo i messaggi di questa campagna; like e offerte continuano.
+        await finishOp(c, item, op, "failed", { error: `Invio manuale non arrivato entro ${waitS} secondi: il testo è rimasto nel campo, niente è stato inviato`, retryable: true });
+        await setLedger(c.accountId, item, op, "failed", c.id, { result: "manualTimeout" });
+        return suspendType(c, "message", `nessun invio manuale entro ${waitS} secondi per «${title}»`, "manual");
+      }
+      const why = st.state === "unknown" ? "la pagina della chat è cambiata prima della conferma"
+        : st.cleared ? "il campo si è svuotato ma il messaggio non compare nella conversazione"
+          : "nessun messaggio nuovo nella conversazione";
+      return applyOutcome(c, item, op, { outcome: "uncertain", sent: true, message: `Invio non confermato: ${why}. Controlla la chat prima di riprovare` }, chatTab);
+    }
+
+    await applyOutcome(c, item, op, { outcome: "done", sent: true, message: `Messaggio inviato e verificato (${mode === "manual" ? "B, inviato da te" : "A, automatico"})` }, chatTab);
+    if (chatTab !== tabId) {
+      await tabs.closeOwned(chatTab);      // la scheda di lavoro è rimasta sull'annuncio
+      chatTab = tabId;
+    } else if (!(await returnToListing(tabId, c, item))) {
+      await log({ level: "warn", category: "op", campaignId: c.id, listingId: item.listingId, opType: op.type, message: "Messaggio inviato e verificato, ma il ritorno all'annuncio non è confermato: la prossima operazione riapre la pagina giusta" });
+    }
+    return null;
+  } finally {
+    watcher.stop();
   }
+}
+
+/** Sospende un tipo di operazione in questa campagna (gli altri tipi continuano). */
+async function suspendType(c, type, reason, kind = "errors") {
+  const cur = await patchCampaign(c.id, (x) => {
+    x.suspended = { ...(x.suspended || {}), [type]: { at: Date.now(), reason, kind } };
+    histC(x, "tipo sospeso", `${OP_LABEL[type]}: ${reason}`);
+  });
+  await notify({ category: "campaignPaused", level: "warning", title: `${OP_LABEL[type]}: sospesi in «${cur?.name || ""}»`, body: `${reason[0].toUpperCase()}${reason.slice(1)}. Le altre operazioni continuano. Premi Riprendi per riprovare.`, link: `#campaigns/${c.id}`, campaignId: c.id, persistent: true, groupKey: `suspend-${c.id}-${type}` });
   return null;
 }
 
@@ -823,21 +1001,75 @@ function setCurrent(campaignId, item, op) {
 }
 
 /** Niente è stato inviato: l'operazione torna in attesa. */
-async function notSent(c, item, op, kind, message, tabId = null) {
-  await updateOp(c.id, item.id, op.id, { status: "waiting", error: message, startedAt: null });
+/**
+ * L'operazione NON è partita (niente è arrivato a Vinted).
+ * - CAPTCHA, 403/429, sessione: riguardano tutto → pausa come prima.
+ * - Errore della singola operazione (pagina, chat, scheda): si riprova più tardi (retryAfter),
+ *   intanto la campagna esegue le altre. Dopo opRetry.attempts tentativi diventa «fallita»
+ *   (ripetibile con «Ripeti falliti»). Conta per il suo tipo: 3 di fila sospendono solo quel tipo.
+ */
+async function notSent(c, item, op, kind, message, tabId = null, diag = null) {
+  const s = await getSettings();
   const prev = await db.get("ledger", ledgerKey(c.accountId, item.listingId, op.type));
   // Torna allo stato di prima del tentativo (mai "running": bloccherebbe per sempre l'annuncio).
   if (prev?.status === "running") await db.put("ledger", { ...prev, status: [...(prev.history || [])].reverse().find((h) => h.status && h.status !== "running")?.status || "failed" });
-  await journal({ phase: "result", opId: op.id, itemId: item.id, campaignId: c.id, type: op.type, status: "notSent", note: message });
-  const cur = await patchCampaign(c.id, (x) => {
-    x.current = null;
-    if (kind !== "captcha" && kind !== "blocked" && kind !== "auth") x.consecutiveFailures = (x.consecutiveFailures || 0) + 1;
-  });
+  const local = kind === "error";
+  const attempts = (await db.get("items", item.id))?.ops.find((o) => o.id === op.id)?.attempts || (op.attempts || 0) + 1;
+  const maxAttempts = Math.max(1, s.opRetry?.attempts || 3);
+  if (local && attempts >= maxAttempts) {
+    await finishOp(c, item, op, "failed", { error: `Non partita dopo ${attempts} tentativi. Ultimo: ${message}`, retryable: true, result: diag ? { diag } : null });
+  } else {
+    const delays = s.opRetry?.delaysSec || [60, 300];
+    const retryAfter = local ? Date.now() + 1000 * (delays[Math.min(attempts - 1, delays.length - 1)] || 60) : null;
+    await updateOp(c.id, item.id, op.id, { status: "waiting", error: message, startedAt: null, retryAfter, diag: diag || null });
+    await journal({ phase: "result", opId: op.id, itemId: item.id, campaignId: c.id, type: op.type, status: "notSent", note: message, cycle: op.cycle || 1 });
+    await patchCampaign(c.id, (x) => { x.current = null; });
+  }
+  const cur = await getCampaign(c.id);
   if (kind === "captcha" || kind === "blocked") return platformBlock(cur, kind, message, tabId);
   if (kind === "auth") return startAuthFlow(cur, message, tabId);
-  await log({ level: "warn", category: "op", campaignId: c.id, listingId: item.listingId, opType: op.type, message: `Non inviato: ${message}`, code: /scheda|tab/i.test(message) ? "noTab" : null });
+  await log({ level: "warn", category: "op", campaignId: c.id, listingId: item.listingId, opType: op.type, message: `Non partita (tentativo ${attempts}/${maxAttempts}): ${message}`, code: /scheda|tab/i.test(message) ? "noTab" : null, data: diag ? { diag } : undefined });
+  return countFailure(c, op.type, message);
+}
+
+/** Successo: azzera i contatori di errori (del tipo e della campagna). */
+async function countSuccess(c, type) {
+  await patchCampaign(c.id, (x) => {
+    x.consecutiveFailures = 0;
+    if (x.typeFailures?.[type]) x.typeFailures = { ...x.typeFailures, [type]: 0 };
+  });
+}
+
+/**
+ * Errore di un'operazione: conta per il suo tipo e per la campagna.
+ * maxConsecutiveFailures di fila dello stesso tipo → solo quel tipo viene sospeso in questa campagna
+ * (like e offerte non si fermano per un problema dei messaggi). maxConsecutiveFailuresAll di fila
+ * di qualsiasi tipo → problema generale: pausa dell'intera campagna.
+ */
+async function countFailure(c, type, message) {
   const s = await getSettings();
-  if (cur.consecutiveFailures >= (s.maxConsecutiveFailures || 3)) await pause(c.id, "errors", `${cur.consecutiveFailures} problemi di fila. Ultimo: ${message}`);
+  const per = Math.max(1, s.maxConsecutiveFailures || 3);
+  const all = Math.max(per, s.maxConsecutiveFailuresAll || 6);
+  const before = await getCampaign(c.id);
+  const cur = await patchCampaign(c.id, (x) => {
+    x.consecutiveFailures = (x.consecutiveFailures || 0) + 1;
+    const n = ((x.typeFailures || {})[type] || 0) + 1;
+    x.typeFailures = { ...(x.typeFailures || {}), [type]: n };
+    if (n >= per && !x.suspended?.[type]) {
+      x.suspended = { ...(x.suspended || {}), [type]: { at: Date.now(), reason: `${n} errori di fila. Ultimo: ${String(message).slice(0, 200)}` } };
+      histC(x, "tipo sospeso", `${OP_LABEL[type]}: ${n} errori di fila`);
+    }
+  });
+  if (!cur) return null;
+  if (!before?.suspended?.[type] && cur.suspended?.[type]) {
+    const others = (cur.opsDefaults?.types || []).filter((t) => t !== type).map((t) => OP_LABEL[t].toLowerCase());
+    await log({ level: "warn", category: "op", campaignId: c.id, opType: type, message: `${OP_LABEL[type]} sospesi in «${cur.name}»: ${cur.suspended[type].reason}` });
+    await notify({ category: "campaignPaused", level: "warning", title: `${OP_LABEL[type]}: sospesi in «${cur.name}»`, body: `${cur.suspended[type].reason}.${others.length ? ` La campagna continua con ${others.join(" e ")}.` : ""} Premi Riprendi per riprovare.`, link: `#campaigns/${c.id}`, campaignId: c.id, persistent: true, groupKey: `suspend-${c.id}-${type}` });
+  }
+  if (cur.status === "running" && cur.consecutiveFailures >= all) {
+    return pause(c.id, "errors", `${cur.consecutiveFailures} problemi di fila, di tipi diversi: probabile problema generale (Vinted o connessione). Ultimo: ${message}`);
+  }
+  return null;
 }
 
 /** Segnale di Vinted (403/429/CAPTCHA/restrizione): pausa di TUTTE le campagne. */
@@ -894,7 +1126,7 @@ async function applyOutcome(c, item, op, res, tabId) {
       await setState("counters", countOp(await getState("counters", null), c.accountId, op.type));
       await setLedger(c.accountId, item, op, "completed", c.id, { result: res.outcome });
       await health.recordSuccess(op.type);
-      await patchCampaign(c.id, (cur) => { cur.consecutiveFailures = 0; });
+      await countSuccess(c, op.type);
       const verb = res.outcome === "already" ? "già presente" : op.type === "offer" ? "inviata" : op.type === "message" ? "inviato" : "completato";
       await activity(op.type, `${label} ${verb}: «${title}»${op.amount ? ` · ${op.amount} €` : ""}`, { campaignId: c.id, listingId: item.listingId });
       return finishOp(c, item, op, "completed", { result: { outcome: res.outcome, detail: res.message }, listingPatch });
@@ -921,18 +1153,19 @@ async function applyOutcome(c, item, op, res, tabId) {
       await health.recordFailure(op.type, res.message || "Funzione non riconosciuta sulla pagina", { hard: true });
       if (res.sent) return markVerify(c, item, op, res.message);
       await setLedger(c.accountId, item, op, "failed", c.id);
-      await finishOp(c, item, op, "failed", { error: res.message, retryable: true });
-      return pause(c.id, "module", `${label}: ${res.message}. Il modulo è stato isolato.`);
+      await finishOp(c, item, op, "failed", { error: `${res.message}. Modulo ${label} isolato: gli altri tipi continuano.`, retryable: true });
+      // Il circuit breaker isola il modulo: il tick salta le sue operazioni e la campagna prosegue con gli altri tipi.
+      await log({ level: "error", category: "op", campaignId: c.id, listingId: item.listingId, opType: op.type, message: `${label}: ${res.message}. Modulo isolato.` });
+      return null;
     }
     case "failed": {
       await setLedger(c.accountId, item, op, "failed", c.id, { result: res.message });
       // Un importo rifiutato (400/422) è un «no» a quell'offerta, non un guasto del modulo.
       if (res.retryable !== false) await health.recordFailure(op.type, res.message || "errore");
       await log({ level: "error", category: "op", campaignId: c.id, listingId: item.listingId, opType: op.type, opId: op.id, message: `${label} fallito: ${res.message}`, data: { status: res.status } });
-      const cur = await patchCampaign(c.id, (x) => { x.consecutiveFailures = (x.consecutiveFailures || 0) + 1; });
-      await finishOp(c, item, op, "failed", { error: res.message, retryable: res.retryable !== false });
-      const s = await getSettings();
-      if (cur.consecutiveFailures >= (s.maxConsecutiveFailures || 3)) await pause(c.id, "errors", `${cur.consecutiveFailures} operazioni fallite di fila. Ultima: ${res.message}`);
+      await finishOp(c, item, op, "failed", { error: res.message, retryable: res.retryable !== false, result: res.diag ? { diag: res.diag } : null });
+      // Un «no» di Vinted a quell'operazione (importo rifiutato, chat non disponibile) non è un guasto.
+      if (res.retryable !== false) return countFailure(c, op.type, res.message);
       return null;
     }
     case "uncertain":
@@ -946,10 +1179,8 @@ async function markVerify(c, item, op, message) {
   await setLedger(c.accountId, item, op, "verify", c.id, { result: message });
   await log({ level: "warn", category: "op", campaignId: c.id, listingId: item.listingId, opType: op.type, opId: op.id, message: `Esito incerto: ${message}`, code: "uncertain" });
   await notify({ category: "verify", level: "warning", title: `Da verificare: ${OP_LABEL[op.type]} su «${item.listing?.title?.slice(0, 40) || item.listingId}»`, body: "Non è certo che sia arrivata a Vinted. Non verrà ripetuta: controllala in Recupero.", link: "#recovery", campaignId: c.id, persistent: true, groupKey: "verify" });
-  const cur = await patchCampaign(c.id, (x) => { x.consecutiveFailures = (x.consecutiveFailures || 0) + 1; });
   await finishOp(c, item, op, "verify", { error: message });
-  const s = await getSettings();
-  if (cur.consecutiveFailures >= (s.maxConsecutiveFailures || 3)) await pause(c.id, "errors", `${cur.consecutiveFailures} esiti problematici di fila.`);
+  return countFailure(c, op.type, `esito da verificare: ${message}`);
 }
 
 // ------------------------------------------------------------------ recupero

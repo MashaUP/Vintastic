@@ -20,16 +20,15 @@ export async function render(ctx) {
 
   return h("div", { class: "grid" },
     h("div", { class: "page-head" }, h("div", { class: "grow" }, h("h1", {}, "Statistiche"), h("p", {}, "Calcolate dai dati salvati sul tuo computer. Le simulazioni non sono conteggiate.")),
-      h("button", { class: "btn", onclick: () => downloadText(["giorno;like;commenti;offerte;messaggi;annunci_scansionati;fallite", ...s.days.map((d) => [d, s.series.like[d], s.series.comment[d], s.series.offer[d], s.series.message[d], s.series.scan[d], s.series.failed[d]].join(";"))].join("\n"), `vintastic-statistiche-${st.range}.csv`) }, icon("download", 16), "CSV")),
+      h("button", { class: "btn", onclick: () => downloadText(["giorno;like;offerte;messaggi;annunci_scansionati;fallite", ...s.days.map((d) => [d, s.series.like[d], s.series.offer[d], s.series.message[d], s.series.scan[d], s.series.failed[d]].join(";"))].join("\n"), `vintastic-statistiche-${st.range}.csv`) }, icon("download", 16), "CSV")),
     h("div", { class: "row" }, seg, st.range === "custom" ? h("label", { class: "field" }, "Dal", dateIn("from")) : null, st.range === "custom" ? h("label", { class: "field" }, "Al", dateIn("to")) : null),
     h("div", { class: "stats" },
-      kpi("Account", t.accounts), kpi("Annunci scansionati", t.listings), kpi("Like", t.likes), kpi("Commenti suggeriti", t.comments), kpi("Offerte", t.offers), kpi("Messaggi privati", t.messages),
+      kpi("Account", t.accounts), kpi("Annunci scansionati", t.listings), kpi("Like", t.likes), kpi("Offerte", t.offers), kpi("Messaggi privati", t.messages),
       kpi("Campagne completate", t.campaignsDone), kpi("Campagne in corso", t.campaignsRunning), kpi("Fallite", t.failed), kpi("Da verificare", t.verify),
       kpi("In attesa", t.pending), kpi("Saltate", t.skipped), kpi("Tempo di attività", duration(t.activeMs))),
     h("div", { class: "panels" },
       h("div", { class: "card" }, h("h3", {}, icon("chart", 16), "Interazioni nel tempo"), lineChart(s.days, [
         { name: "Like", color: "var(--s-like)", values: values("like") },
-        { name: "Commenti", color: "var(--s-comment)", values: values("comment") },
         { name: "Offerte", color: "var(--s-offer)", values: values("offer") },
         { name: "Messaggi", color: "var(--s-message)", values: values("message") }])),
       h("div", { class: "card" }, h("h3", {}, icon("scan", 16), "Annunci letti dalle scansioni"), lineChart(s.days, [{ name: "Annunci", color: "var(--s-scan)", values: values("scan") }])),
@@ -38,6 +37,6 @@ export async function render(ctx) {
         { name: "Fallite", color: "var(--s-like)", values: values("failed") }])),
       h("div", { class: "card" }, h("h3", {}, icon("user", 16), "Attività per account"), barList(Object.entries(s.byAccount).map(([k, v]) => ({ label: k.split("@")[0], value: v })))),
       h("div", { class: "card" }, h("h3", {}, icon("zap", 16), "Attività per campagna"), barList(Object.entries(s.byCampaign).map(([k, v]) => ({ label: names.get(k) || k, value: v })).sort((a, b) => b.value - a.value).slice(0, 12))),
-      h("div", { class: "card" }, h("h3", {}, icon("layers", 16), "Andamento delle code"), barList(camps.filter((c) => c.progress?.ops).map((c) => ({ label: `${c.name} (${c.progress.percent}%)`, value: c.progress.pending })), "var(--s-comment)"),
+      h("div", { class: "card" }, h("h3", {}, icon("layers", 16), "Andamento delle code"), barList(camps.filter((c) => c.progress?.ops).map((c) => ({ label: `${c.name} (${c.progress.percent}%)`, value: c.progress.pending })), "var(--s-message)"),
         h("p", { class: "small muted" }, "Operazioni ancora in attesa per campagna."))));
 }

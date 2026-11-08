@@ -209,6 +209,7 @@ export function sanitizeMessagesPatch(m) {
   const out = {};
   if ("mode" in m) out.mode = m.mode === "manual" ? "manual" : "auto";
   if ("text" in m) out.text = norm(m.text).slice(0, MESSAGE_MAX);
+  if ("focusTab" in m) out.focusTab = Boolean(m.focusTab);
   if ("manualWaitSeconds" in m) out.manualWaitSeconds = Math.max(5, Math.min(240, Math.round(Number(m.manualWaitSeconds) || MANUAL_WAIT_DEFAULT)));
   if ("recipients" in m) out.recipients = cleanRecipients(m.recipients);
   if ("templates" in m) {
@@ -220,4 +221,27 @@ export function sanitizeMessagesPatch(m) {
     })).filter((t) => t.text && !seen.has(t.id) && seen.add(t.id));
   }
   return out;
+}
+
+/**
+ * Spiegazione leggibile di perché la chat non si è aperta, dai dati raccolti in attesa
+ * (engine.waitChat). Distingue i casi: clic senza effetto, nuova scheda, Vintastic assente
+ * sulla pagina, campo assente nella chat, pagina in caricamento, scheda in background.
+ */
+export function chatDiagnosis(d = {}) {
+  const url = d.url || "?";
+  const secs = Math.round((d.waitedMs || 0) / 1000);
+  const parts = [];
+  if (/\/items\/\d+/.test(url)) {
+    parts.push(d.askButton ? "il clic su «Chiedi info» non ha aperto la chat (la scheda è rimasta sull'annuncio)" : "la scheda è rimasta sull'annuncio");
+  } else if (/\/inbox\b/.test(url)) {
+    if (d.noContent && !d.composer && d.textareas == null) parts.push(d.reinjected ? "chat aperta, ma Vintastic non risponde sulla pagina nemmeno dopo averlo reinserito" : "chat aperta, ma Vintastic non risponde sulla pagina della chat");
+    else parts.push(`chat aperta (${url.replace(/^https?:\/\/[^/]+/, "")}) ma il campo #composerInput non c'è (${d.textareas ?? 0} campi di testo sulla pagina): struttura di Vinted cambiata?`);
+  } else {
+    parts.push(`la scheda è su ${url.replace(/^https?:\/\/[^/]+/, "") || "una pagina sconosciuta"}`);
+  }
+  if (d.status === "loading") parts.push("pagina ancora in caricamento");
+  if (d.newTab) parts.push("la chat si è aperta in una scheda nuova");
+  if (d.visible === false) parts.push("la scheda era in background: attiva «Scheda in primo piano durante i messaggi» in Impostazioni › Messaggi");
+  return `${parts.join("; ")} (attesa ${secs} s).`;
 }

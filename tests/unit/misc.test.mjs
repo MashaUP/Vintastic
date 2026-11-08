@@ -51,16 +51,32 @@ test("versioni e release GitHub", () => {
   assert.equal(parseShaFile(`${"a".repeat(64)}  vintastic-1.2.0.zip\n`, "vintastic-1.2.0.zip"), "a".repeat(64));
 });
 
-test("migrazione impostazioni: v1 → v3 conservando i valori dell'utente", () => {
+test("migrazione impostazioni: v1 → v4 conservando i valori dell'utente", () => {
   const { settings, applied, from } = migrateSettings({ timers: { minDelay: 30, maxDelay: 60 }, limits: { daily: 25 }, notifications: false, overlay: true, theme: "light" });
   assert.equal(from, 1);
-  assert.deepEqual(applied, ["settings_v1 → settings_v2", "settings_v2 → settings_v3"]);
+  assert.deepEqual(applied, ["settings_v1 → settings_v2", "settings_v2 → settings_v3", "settings_v3 → settings_v4"]);
+  assert.equal(settings.limits.perDay.comment, undefined, "niente chiavi dei commenti");
   assert.deepEqual(settings.timers.betweenItems, { min: 30, max: 60 });
   assert.equal(settings.limits.perDay.offer, 25);
   assert.equal(settings.notifications.enabled, false);
   assert.equal(settings.theme, "light");
   assert.equal(settings.schema, DEFAULT_SETTINGS.schema);
   assert.ok(settings.timers.transitions, "chiavi nuove con i predefiniti");
+});
+
+test("migrazione impostazioni 3 → 4: via i commenti, Posizione In cima solo se non scelta", () => {
+  const old = { schema: 3, limits: { perDay: { like: 5, comment: 9, offer: 3 } }, timers: { transitions: { "like>comment": { min: 1, max: 2 }, "comment>offer": { min: 1, max: 2 }, "like>offer": { min: 7, max: 8 } } }, features: { comment: true, like: false }, moduleKill: { comment: true } };
+  const { settings, applied } = migrateSettings(old);
+  assert.deepEqual(applied, ["settings_v3 → settings_v4"]);
+  assert.equal(settings.limits.perDay.comment, undefined);
+  assert.equal(settings.limits.perDay.like, 5, "valori dell'utente conservati");
+  assert.deepEqual(settings.timers.transitions["like>offer"], { min: 7, max: 8 });
+  assert.ok(!Object.keys(settings.timers.transitions).some((k) => k.includes("comment")));
+  assert.equal(settings.features.comment, undefined);
+  assert.equal(settings.features.like, false);
+  assert.equal(settings.moduleKill.comment, undefined);
+  assert.equal(settings.campaignDefaults.addPosition, "start");
+  assert.equal(migrateSettings({ ...old, campaignDefaults: { addPosition: "end" } }).settings.campaignDefaults.addPosition, "end", "preferenza salvata non sovrascritta");
 });
 
 test("normalizzazione annunci: varianti di Vinted, date separate, niente invenzioni", () => {

@@ -103,7 +103,7 @@ export async function render(ctx) {
       h("td", { class: "small" }, l.publishedAt ? fmtDay(l.publishedAt) : l.photoAt ? h("span", { title: "Vinted non fornisce la data di pubblicazione: questa è la data della foto principale (stima)" }, `${fmtDay(l.photoAt)} `, h("span", { class: "muted" }, "(foto)")) : "—"),
       h("td", { class: "small" }, fmtDay(l.updatedAt), l.repostedAt ? h("div", { class: "muted" }, `ripubbl.: ${fmtDay(l.repostedAt)}`) : null),
       h("td", {}, h("span", { class: `pill ${st[1]}` }, st[0])),
-      h("td", {}, inter ? h("div", { class: "ops" }, ["like", "comment", "offer", "message"].filter((t) => inter[t]).map((t) => h("span", { class: `op-chip ${inter[t]}`, title: inter[t] }, OP_LABEL[t]))) : h("span", { class: "muted small" }, "Mai elaborato")),
+      h("td", {}, inter ? h("div", { class: "ops" }, ["like", "offer", "message"].filter((t) => inter[t]).map((t) => h("span", { class: `op-chip ${inter[t]}`, title: inter[t] }, OP_LABEL[t]))) : h("span", { class: "muted small" }, "Mai elaborato")),
       h("td", { class: "small" }, inter?.accounts?.map((a) => a.split("@")[0]).join(", ") || "—"),
       h("td", { class: "small" }, l.campaigns?.join(", ") || "—"));
   });
@@ -132,8 +132,12 @@ async function addToCampaign(ctx) {
   const camps = (await rpc("campaigns.list")).filter((c) => !["completed", "stopped"].includes(c.status));
   const sel = h("select", { class: "input" }, h("option", { value: "__new" }, "+ Nuova campagna"), camps.map((c) => h("option", { value: c.id }, `${c.name} (${c.status})`)));
   const name = h("input", { class: "input", placeholder: "Nome della nuova campagna", value: `Campagna ${new Date().toLocaleDateString("it-IT")}` });
-  const types = ["like", "offer", "comment", "message"].map((t) => ({ t, cb: h("input", { type: "checkbox", checked: t === "like" }) }));
-  const where = h("select", { class: "input" }, h("option", { value: "end" }, "In fondo alla coda"), h("option", { value: "start" }, "In cima alla coda"));
+  const types = ["like", "offer", "message"].map((t) => ({ t, cb: h("input", { type: "checkbox", checked: t === "like" }) }));
+  const where = h("select", { class: "input", "aria-label": "Posizione" }, h("option", { value: "start" }, "In cima alla coda"), h("option", { value: "end" }, "In fondo alla coda"));
+  // «Posizione»: quella salvata nella campagna scelta; per una campagna nuova, la predefinita (In cima).
+  const syncWhere = () => { const c = camps.find((x) => x.id === sel.value); where.value = c?.addPosition || ctx.settings.campaignDefaults?.addPosition || "start"; };
+  sel.addEventListener("change", syncWhere);
+  syncWhere();
   const ok = await modal(`Aggiungi ${state.selected.size} annunci`, h("div", { class: "grid" },
     h("label", { class: "field" }, "Campagna", sel), name,
     h("div", {}, h("div", { class: "small muted" }, "Operazioni (combinabili)"), h("div", { class: "row" }, types.map(({ t, cb }) => h("label", { class: "check" }, cb, OP_LABEL[t])))),
@@ -145,7 +149,7 @@ async function addToCampaign(ctx) {
   if (!chosen.length) return toast("Scegli almeno un'operazione", "", "warning");
   try {
     let id = sel.value;
-    if (id === "__new") id = (await rpc("campaigns.create", { name: name.value, types: chosen, dryRun: true })).id;
+    if (id === "__new") id = (await rpc("campaigns.create", { name: name.value, types: chosen, dryRun: true, addPosition: where.value })).id;
     const r = await rpc("campaigns.add", { id, listingIds: [...state.selected], spec: { types: chosen }, where: where.value });
     toast(`${r.added} annunci aggiunti`, r.rejected.length ? `${r.rejected.length} scartati (${r.rejected[0].reason})` : "", "success");
     state.selected.clear();

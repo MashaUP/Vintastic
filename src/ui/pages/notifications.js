@@ -30,7 +30,7 @@ export async function render(ctx) {
     h("div", { class: "toolbar" }, h("label", { class: "field" }, "Gravità", sel("level", LEVEL)), h("label", { class: "field" }, "Categoria", sel("category", CAT)),
       h("label", { class: "check" }, h("input", { type: "checkbox", checked: filt.unread, onchange: (e) => { filt.unread = e.target.checked; ctx.refresh(); } }), "Solo non lette"),
       h("label", { class: "check" }, h("input", { type: "checkbox", checked: filt.group, onchange: (e) => { filt.group = e.target.checked; ctx.refresh(); } }), "Raggruppa")),
-    Object.keys(groups).length ? h("ul", { class: "feed", style: { maxHeight: "none", marginTop: "10px" } }, Object.values(groups).map((g) => {
+    Object.keys(groups).length ? h("ul", { class: "feed notes", style: { maxHeight: "none", marginTop: "10px" } }, Object.values(groups).map((g) => {
       const n = g[0];
       const lv = LEVEL[n.level] || LEVEL.info;
       return h("li", { style: { opacity: n.read ? 0.65 : 1 } },

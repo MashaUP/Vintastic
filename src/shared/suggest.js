@@ -7,8 +7,8 @@
  *  - "api": un endpoint compatibile OpenAI (servizio esterno o LLM locale come
  *    Ollama/LM Studio). Qui ci sono solo il prompt e la lettura della risposta.
  *
- * Vinted non ha commenti pubblici sugli annunci: i suggerimenti si copiano e si
- * usano a mano (per esempio in un messaggio al venditore). Niente invio automatico.
+ * Domande al venditore: usate dalla fonte «Domanda sull'annuncio» dei messaggi privati,
+ * oppure copiate a mano dalla pagina «Domande al venditore».
  */
 
 const RULES = [

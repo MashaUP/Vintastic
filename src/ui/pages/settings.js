@@ -42,10 +42,12 @@ export async function render(ctx) {
       h("label", { class: "field" }, "Like al giorno", num(s.limits.perDay.like, (v) => save({ limits: { perDay: { like: v } } }), { min: 0 })),
       h("label", { class: "field" }, "Offerte al giorno", num(s.limits.perDay.offer, (v) => save({ limits: { perDay: { offer: v } } }), { min: 0 })),
       h("label", { class: "field" }, "Messaggi privati al giorno", num(s.limits.perDay.message ?? 10, (v) => save({ limits: { perDay: { message: v } } }), { min: 0 })),
-      h("label", { class: "field" }, "Commenti (suggerimenti) al giorno", num(s.limits.perDay.comment, (v) => save({ limits: { perDay: { comment: v } } }), { min: 0 })),
       h("label", { class: "field" }, "Totale per account al giorno", num(s.limits.perAccountDay, (v) => save({ limits: { perAccountDay: v } }), { min: 0 })),
       h("label", { class: "field" }, "Totale complessivo al giorno", num(s.limits.globalDay, (v) => save({ limits: { globalDay: v } }), { min: 0 })),
-      h("label", { class: "field" }, "Errori di fila prima della pausa", num(s.maxConsecutiveFailures, (v) => save({ maxConsecutiveFailures: Math.max(1, v) }), { min: 1 })),
+      h("label", { class: "field" }, "Errori di fila dello stesso tipo prima di sospendere quel tipo", num(s.maxConsecutiveFailures, (v) => save({ maxConsecutiveFailures: Math.max(1, v) }), { min: 1 })),
+      h("label", { class: "field" }, "Errori di fila di qualsiasi tipo prima di mettere in pausa la campagna", num(s.maxConsecutiveFailuresAll ?? 6, (v) => save({ maxConsecutiveFailuresAll: Math.max(1, v) }), { min: 1 })),
+      h("label", { class: "field" }, "Tentativi di un'operazione che non parte (poi «fallita»)", num(s.opRetry?.attempts ?? 3, (v) => save({ opRetry: { attempts: Math.max(1, Math.min(10, v)) } }), { min: 1, max: 10 })),
+      h("p", { class: "small muted" }, "Un problema di un tipo (per esempio la chat che non si apre) sospende solo quel tipo nella campagna: like e offerte continuano. Un'operazione che non parte si riprova dopo 1 e poi 5 minuti, intanto si eseguono le altre."),
       h("label", { class: "field" }, "Pause dopo un 403/429 (minuti, poi stop)", (() => { const i = h("input", { class: "input", value: s.backoffMinutes.join(", ") }); i.addEventListener("change", () => save({ backoffMinutes: i.value.split(",").map((x) => Number(x.trim())).filter((x) => x > 0).slice(0, 5) })); return i; })()),
       h("p", { class: "small muted" }, "Per cambiare una soglia mentre è raggiunta devi modificarla qui di proposito: non esistono scorciatoie per superarla.")),
 
@@ -207,6 +209,7 @@ async function messagesPane(ctx, s, save) {
       h("label", { class: "field" }, "Modalità predefinita", sel(MESSAGE_MODES, m.mode === "manual" ? "manual" : "auto", (v) => saveM({ mode: v }))),
       h("p", { class: "small muted", style: { margin: 0 } }, "Ogni campagna può scegliere la sua. In modalità B la scheda di Vinted passa in primo piano con il testo già scritto: controlli e premi Invia. In tutte e due il messaggio conta come inviato solo quando compare nella conversazione."),
       h("label", { class: "field" }, "Attesa dell'invio manuale (B)", h("div", { class: "row" }, wait, h("span", { class: "muted small" }, "secondi, massimo 240 (4 minuti)"))),
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: m.focusTab !== false, onchange: (e) => saveM({ focusTab: e.target.checked }) }), "Scheda di Vinted in primo piano durante i messaggi (consigliato: in una scheda in background la chat può non caricarsi)"),
       h("label", { class: "field" }, "Messaggio predefinito", text),
       h("div", { class: "row" }, cnt, h("button", { class: "btn primary", onclick: () => (text.value.trim() ? saveM({ text: text.value }, "Messaggio salvato") : toast("Il messaggio predefinito non può essere vuoto", "", "warning")) }, "Salva messaggio")));
 

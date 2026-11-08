@@ -33,9 +33,11 @@
 | **Campagne** | Like, offerte e messaggi privati, singoli o combinati, nell'ordine che scegli; timer configurabili (tra operazioni, tra annunci, tra tipi); conferma facoltativa per ogni offerta; simulazione (Dry Run). |
 | **Messaggi privati** | «Chiedi info» sull'annuncio, testo nella chat, invio **automatico (A)** o **premuto da te (B)**. Solo verso i **destinatari autorizzati** che scegli tu (i tuoi account, gli amici che ti hanno dato l'ok): agli altri venditori niente. Testo predefinito, modello, scritto ora, a rotazione o casuale tra modelli, domanda sull'annuncio; segnaposto `{titolo}` `{prezzo}` `{marca}` `{taglia}` `{venditore}`; modificabile annuncio per annuncio. Conta come inviato solo quando compare nella conversazione. |
 | **Code dinamiche** | Aggiungi annunci e operazioni, rimuovi, modifica, cambia priorità, riordina (anche casuale, con anteprima) **mentre la campagna gira**. Le operazioni completate non si toccano. Ogni modifica è nello storico. |
-| **No Repeat** | Global Interaction Ledger: lo stesso account non ripete lo stesso like, la stessa offerta o lo stesso messaggio sullo stesso annuncio, in nessuna campagna. Separato per tipo. |
+| **No Repeat** | Global Interaction Ledger: lo stesso account non ripete per sbaglio lo stesso like, la stessa offerta o lo stesso messaggio sullo stesso annuncio, in nessuna campagna. Separato per tipo. Un esito incerto non si ripete mai. |
+| **Cicli** | Riprocessa gli annunci già elaborati (uno, alcuni, tutti) in un **nuovo ciclo**, quando vuoi: mattina, pomeriggio, giorno dopo. Prima vedi esattamente cosa si ripete, poi confermi e approvi. La cronologia dei cicli precedenti resta. |
+| **Errori isolati** | Un problema di un tipo (per esempio la chat che non si apre) sospende solo quel tipo nella campagna: like e offerte continuano. Un'operazione che non parte si riprova più tardi senza bloccare le altre. |
 | **Smart Offer Engine** | Predefinito **+5% sul prezzo**; percentuale ± (sotto o sopra il prezzo), Risparmio / Interazione / Personalizzata, sconti e incrementi in % o €, minimo e massimo, fasce di prezzo, arrotondamenti (,99 · ,00 · multipli di 5 e 10, per eccesso/difetto/vicino), importi casuali. Anteprima sempre. |
-| **Suggerimenti AI** | Domande pertinenti all'annuncio (es. giacca → «Potresti indicarmi la misura delle spalle?»), più alternative, tono e lingua, cronologia. Regole locali o LLM (locale o esterno) a scelta. Si copiano: Vinted non ha commenti pubblici. |
+| **Domande al venditore** | Domande pertinenti all'annuncio (es. giacca → «Potresti indicarmi la misura delle spalle?»), più alternative, tono e lingua, cronologia. Regole locali o LLM (locale o esterno) a scelta. Si copiano o si salvano come modelli di messaggio. |
 | **Mini-widget e FAB** | Sulle pagine Vinted: avanzamento in tempo reale, timer, pausa/riprendi/stop; menu rapido per scansionare l'armadio o aggiungere l'annuncio aperto. |
 | **Dashboard** | Statistiche con filtri temporali, grafici, attività in tempo reale, riepilogo code, stato del sistema; widget personalizzabili, tema chiaro/scuro, ricerca globale, comando rapido (Ctrl+K), scorciatoie. |
 | **Sicurezza** | Policy Validator prima dell'avvio, Preview Snapshot, soglie giornaliere, Kill Switch globale e per modulo, circuit breaker, pausa su 403/429/CAPTCHA, auto-pausa senza rete, autenticazione assistita. |
@@ -50,11 +52,11 @@
 
 | | |
 |---|---|
-| Versione | **1.4.0** |
+| Versione | **2.0.0** |
 | Browser | Chrome, Edge, Brave (Chromium ≥ 116). Provato in automatico su **Chrome 153**; Edge e Brave non sono stati provati in questo ciclo |
-| Verificato su Vinted reale | **In parte**: scansione e like provati dall'autore su vinted.it. Offerte e notifiche sono ricostruite. **Messaggi privati: mai provati su Vinted reale**, solo sulla chat finta costruita con l'HTML vero (vedi [TEST_PLAN](docs/TEST_PLAN.md)): alla prima prova usa la modalità B e un tuo account |
+| Verificato su Vinted reale | **In parte**: scansione e like provati dall'autore su vinted.it. Per «Chiedi info» sono verificati il pulsante, il clic e l'apertura della chat con il campo del messaggio (07/11/2026); **l'invio di un messaggio con Vintastic su Vinted reale non è ancora stato provato**. Offerte e notifiche sono ricostruite (vedi [TEST_PLAN](docs/TEST_PLAN.md)) |
 | Dipendenze a runtime | Nessuna. Nessun passaggio di build per usarla |
-| Test | `npm test`: 70 test unitari (logica, migrazioni IndexedDB, divieto d'acquisto, messaggi) · `npm run test:e2e`: 28 scenari in Chrome con l'estensione caricata e un Vinted finto |
+| Test | `npm test`: 86 test unitari (logica, migrazioni IndexedDB, divieto d'acquisto, messaggi, cicli) · `npm run test:e2e`: 32 scenari in Chrome con l'estensione caricata e un Vinted finto |
 
 ## Installazione
 
@@ -81,7 +83,8 @@ Tutto in **Impostazioni** (si salva subito, solo nel tuo browser):
 
 - **Timer**: secondi tra operazioni dello stesso annuncio, tra annunci, tra tipi (like → offerta…), minimo assoluto. Ogni campagna può avere i suoi.
 - **Messaggi**: destinatari autorizzati (ID o link del profilo, anche da un armadio scansionato; senza limite di numero), modalità predefinita A/B, attesa dell'invio manuale (fino a 4 minuti), messaggio predefinito e modelli.
-- **Limiti**: soglie giornaliere per like, offerte, messaggi (predefinito 10), commenti, per account e complessive; pause dopo 403/429. *Sono soglie tue, non limiti ufficiali di Vinted.*
+- **Limiti**: soglie giornaliere per like, offerte, messaggi (predefinito 10), per account e complessive; pause dopo 403/429. *Sono soglie tue, non limiti ufficiali di Vinted.*
+- **Avanzate**: errori di fila dello stesso tipo prima di sospendere quel tipo (3), di qualsiasi tipo prima della pausa (6), tentativi di un'operazione che non parte (3).
 - **Notifiche**: categorie, durata, notifiche di sistema.
 - **FAB e widget**: attivi, dimensione, posizione.
 - **AI**: regole locali (predefinito) o endpoint compatibile OpenAI (Ollama/LM Studio in locale, o un servizio esterno).
@@ -121,11 +124,13 @@ Dettagli: [SECURITY.md](SECURITY.md). Vintastic è un progetto indipendente, non
 ## FAQ
 
 <details><summary><b>Può comprare qualcosa per sbaglio?</b></summary>No. Non esiste nessun percorso d'acquisto nel codice, e un guard blocca qualsiasi richiesta non in lista prima che parta.</details>
-<details><summary><b>Perché i commenti non vengono inviati?</b></summary>Vinted non ha commenti pubblici sugli annunci: Vintastic genera i testi, tu li copi e li usi. Per scrivere al venditore c'è l'operazione «Messaggio privato».</details>
+<details><summary><b>Dove sono finiti i commenti?</b></summary>Tolti nella 2.0.0: Vinted non ha commenti pubblici sugli annunci. Per scrivere al venditore c'è l'operazione «Messaggio privato»; le campagne vecchie vengono migrate senza i commenti.</details>
+<details><summary><b>Come rifaccio le stesse operazioni più tardi?</b></summary>Nella campagna: «Nuovo ciclo…» (o l'icona sull'annuncio). Vedi l'elenco di cosa si ripete e cosa no, confermi, approvi l'anteprima e avvii. Le operazioni da verificare non si ripetono mai da sole. Vinted tiene un solo like per annuncio: se il like c'è ancora, viene registrato come già presente.</details>
+<details><summary><b>Un messaggio non va: si ferma tutto?</b></summary>No. Si riprova più tardi e intanto partono le altre operazioni; dopo 3 errori di fila i messaggi della campagna vengono sospesi e like e offerte continuano. Il messaggio d'errore dice cosa è successo (clic senza effetto, campo assente, scheda in background…).</details>
 <details><summary><b>A chi può scrivere Vintastic?</b></summary>Solo ai venditori nell'elenco di Impostazioni › Messaggi. Se in una campagna c'è un annuncio di qualcun altro, il messaggio viene saltato senza aprire la chat (like e offerte su quell'annuncio restano). Con l'elenco vuoto le campagne con messaggi non partono.</details>
-<details><summary><b>Modalità A o B?</b></summary>A: Vintastic preme Invia e aspetta di vedere il messaggio nella conversazione. B: Vintastic apre la chat, scrive il testo e porta la scheda in primo piano; premi tu Invia (puoi anche cambiare il testo). Se in B non premi Invia entro il tempo scelto, il messaggio non parte e la campagna va in pausa. Per la prima prova usa B.</details>
+<details><summary><b>Modalità A o B?</b></summary>A: Vintastic preme Invia e aspetta di vedere il messaggio nella conversazione. B: Vintastic apre la chat, scrive il testo e porta la scheda in primo piano; premi tu Invia (puoi anche cambiare il testo). Se in B non premi Invia entro il tempo scelto, il messaggio non parte e i messaggi della campagna si sospendono (il resto continua). Per la prima prova usa B.</details>
 <details><summary><b>Un messaggio è «da verificare»?</b></summary>Vintastic ha premuto Invia (o il campo si è svuotato) ma il messaggio non è comparso nella conversazione. Non viene mai rimandato da solo: apri la chat su Vinted e indica in Recupero se c'è.</details>
-<details><summary><b>Funziona con la scheda in secondo piano o il browser chiuso?</b></summary>In secondo piano sì: Vintastic usa una sua scheda di Vinted, che può restare dietro le altre. A browser chiuso no; alla riapertura la coda si recupera.</details>
+<details><summary><b>Funziona con la scheda in secondo piano o il browser chiuso?</b></summary>Like e offerte sì: Vintastic usa una sua scheda di Vinted, che può restare dietro le altre. Per i messaggi la scheda passa in primo piano (si può disattivare in Impostazioni › Messaggi). A browser chiuso no; alla riapertura la coda si recupera.</details>
 <details><summary><b>Una operazione è «da verificare». Che faccio?</b></summary>Recupero › controlla su Vinted e indica se è stata eseguita. Per i like c'è la verifica automatica. Non viene mai ripetuta da sola.</details>
 <details><summary><b>Posso usare più account?</b></summary>Vintastic usa l'account con cui sei collegato a Vinted, riconosce quelli usati in passato e controlla che la sessione corrisponda alla campagna. Il cambio di account si fa su Vinted.</details>
 <details><summary><b>Le soglie giornaliere sono «sicure»?</b></summary>Sono soglie tue. Vinted non pubblica i suoi limiti, e nessun numero è garantito.</details>

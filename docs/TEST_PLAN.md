@@ -1,6 +1,6 @@
 # Piano di test e risultati
 
-**Ambiente.** Linux, Node 22, Google Chrome for Testing **153** (headless, estensione caricata con `--load-extension`), Python + Playwright. Vinted è sostituito da un **Vinted finto** (`tests/e2e/fake_vinted.py`): pagine e API servite con `context.route`, con le forme di risposta note da Vinted_Relist e quelle ipotizzate in `adapter.js`; la **chat** è costruita con l'HTML reale fornito («Chiedi info», `textarea#composerInput`, `[data-testid="arrow-right"]`). **Nessun test automatico ha toccato Vinted reale.** Un test superato qui dimostra che Vintastic si comporta come previsto con *quelle* pagine e risposte; non dimostra che Vinted risponda così.
+**Ambiente.** Linux, Node 22, Google Chrome for Testing **153** (headless, estensione caricata con `--load-extension`), Python + Playwright. Vinted è sostituito da un **Vinted finto** (`tests/e2e/fake_vinted.py`): pagine e API servite con `context.route`, con le forme di risposta note da Vinted_Relist e quelle ipotizzate in `adapter.js`; la **chat** è costruita con l'HTML reale fornito («Chiedi info», `textarea#composerInput`, `[data-testid="arrow-right"]`). **Nessun test automatico ha toccato Vinted reale.** Nella 2.0.0 la pagina reale di un annuncio e la chat sono state *osservate* su vinted.it con Claude in Chrome, nel browser e con l'account dell'autore (07/11/2026): pulsante «Chiedi info», clic, apertura della chat, campo del messaggio. Nessun messaggio inviato. Un test superato qui dimostra che Vintastic si comporta come previsto con *quelle* pagine e risposte; non dimostra che Vinted risponda così.
 
 ## Come si eseguono
 
@@ -13,15 +13,15 @@ actionlint .github/workflows/*.yml
 ```
 
 - `tests/unit/`: logica pura di `src/shared/` e migrazioni IndexedDB.
-- `tests/e2e/`: `fake_vinted.py` (Vinted finto), `harness.py` (avvio di Chrome con l'estensione), `scenarios.py` (funzioni generali), `messages.py` (messaggi privati), `run_all.py` (esecuzione e rapporto in `tests/e2e/artifacts/report.json`). Ogni scenario parte da un profilo pulito e controlla che nessuna richiesta d'acquisto sia partita e che le pagine non abbiano errori JavaScript.
+- `tests/e2e/`: `fake_vinted.py` (Vinted finto), `harness.py` (avvio di Chrome con l'estensione), `scenarios.py` (funzioni generali), `messages.py` (messaggi privati), `cycles.py` (cicli e interfaccia 2.0), `run_all.py` (esecuzione e rapporto in `tests/e2e/artifacts/report.json`). Ogni scenario parte da un profilo pulito e controlla che nessuna richiesta d'acquisto sia partita e che le pagine non abbiano errori JavaScript.
 
-## Risultati 1.4.0
+## Risultati 2.0.0
 
-| Suite | Esito |
-|---|---|
-| `npm test` | ✔ controlli + 70/70 test unitari |
-| `npm run test:e2e` | ✔ 28/28 scenari (22 generali + 6 sui messaggi) nell'ultimo giro completo. Il giro prima: 27/28, per una gara nel test «recupero dopo crash» (corretta, poi 3 giri di fila senza errori) |
-| `npm run build` | ✔ `Vintastic-1.4.0.zip`, 85 file; pacchetto installato e caricato in Chrome |
+| Suite | Superati | Falliti | Note |
+|---|---|---|---|
+| `npm test` (controlli + unitari) | 87 (controlli + 86 test) | 0 | |
+| `npm run test:e2e` | 32 scenari | 0 | ultimo giro completo 32/32. Nel giro precedente 30/32: due scenari vecchi si aspettavano il comportamento 1.4.0 (schema 3; pausa dell’intera campagna con un modulo spento), aggiornati al nuovo comportamento voluto e ripassati |
+| `npm run build` + installazione del pacchetto | ✔ | — | BUILDNOTE |
 
 ## Test unitari
 
@@ -34,6 +34,7 @@ actionlint .github/workflows/*.yml
 | `guard.test.mjs` | **divieto d'acquisto**: 14 percorsi d'acquisto bloccati, lista ammessa, pulsanti in 10 lingue, analisi statica del codice, guard caricato per primo, permessi del manifest |
 | `misc.test.mjs` | redazione, export senza segreti, import (bozze, running → verify), deduplicazione, semver e release GitHub, migrazione impostazioni v1→v3, normalizzazione annunci, suggerimenti, statistiche senza simulazioni |
 | `db-migrations.test.mjs` | db_v1→v2→v3 con dati conservati, installazione pulita 0→3, **rollback** su passo fallito |
+| `campaign-flow.test.mjs` | **2.0.0**: messaggio rinviato che non blocca like e offerte (la causa del blocco), tipi sospesi e moduli isolati, nuovi tentativi programmati, No Repeat con i cicli (stesso ciclo, altra campagna, nuovo ciclo, incerti mai), piano e applicazione del nuovo ciclo (cronologia, id, altri annunci intatti, testo a mano), riepilogo dei cicli, riapprovazione, validatore con modulo isolato, diagnosi della chat, selettori verificati, commenti assenti dal codice, «Posizione», notifiche, ordine di «In cima» |
 | `messages.test.mjs` | messaggio distinto dal commento, predefiniti (A, 10 al giorno, nessun destinatario), campagne nuove senza messaggi, **destinatari** (id, link, doppioni, nessun limite, se stessi, estranei), testo 1–1000, segnaposto, **6 fonti del testo** (predefinito, modello, scritto ora, rotazione, casuale riproducibile, suggerimento), modalità per campagna, anteprima (estranei saltati, testo a mano fisso, operazioni concluse intatte), **snapshot** con testo e modalità e compatibilità con 1.2.0/1.3.1, Policy Validator, soglia 10/giorno, No Repeat, pulizia delle impostazioni, **privacy** (Support Bundle, log), statistiche, clic solo da `VTGuard.safeClick` e nessuna API di messaggistica |
 
 ## I 44 test richiesti
@@ -53,7 +54,7 @@ actionlint .github/workflows/*.yml
 | 9 | Top N | ✔ | Top 20 degli ultimi 7 giorni, numero personalizzato (anche dal dialogo), primi 5 nell'ordine di Vinted senza date, ordine ribaltabile |
 | 10 | Selezione annunci | ✔ | e2e via filtri e via wizard |
 | 11 | Like | ✔ | 3 like sul Vinted finto, stato letto prima e dopo; anche senza API di lettura (nessun falso «da verificare») |
-| 12 | Commenti | ✔ | Vinted non li supporta: diventano suggerimenti, nessun invio (verificato) |
+| 12 | Commenti | — | **tolti nella 2.0.0** (Vinted non li ha): migrazione db_v4 e impostazioni 4 provate, operazione «comment» rifiutata |
 | 13 | Offerte | ✔ | importi -20% con arrotondamento, inviati una volta; predefinito +5%; «prezzo troppo basso» → nuove regole → ricalcolo e invio |
 | 14 | Combinazione operazioni | ✔ | like + offerta sullo stesso annuncio, nell'ordine scelto; simulazione → «Esegui davvero su Vinted» → invio reale (corretto nella 1.0.1) |
 | 15 | Timer | ✔ | unit + e2e (intervallo di 3 s tra annunci rispettato, nessun avanzamento in pausa) |
@@ -89,6 +90,63 @@ actionlint .github/workflows/*.yml
 
 **Non eseguito: nessuna prova su Vinted reale.** È il prossimo passo consigliato (vedi la prova manuale qui sotto).
 
+## 2.0.0: campagne, operazioni, cicli, interfaccia
+
+### Operazioni
+
+| Operazione | Test | Esito | Dove |
+|---|---|---|---|
+| Like | individuazione dello stato, toggle, rilettura, ledger, statistiche | ✔ simulato | campagna reale, like senza API di lettura, cicli |
+| Offerte | importo, invio, esito, rifiuto «prezzo troppo basso», nuovo ciclo | ✔ simulato | campagna reale, offerte rifiutate, cicli |
+| Messaggi A | apertura chat, compilazione, clic, messaggio verificato, ritorno | ✔ simulato | messaggi A, chat in una scheda nuova |
+| Messaggi B | compilazione, attesa, invio dell'utente (pulsante e Invio), timeout | ✔ simulato | messaggi B, timeout |
+| «Chiedi info» su vinted.it | pulsante (`data-testid="ask-seller-button"`), clic (anche non «fidato»), chat `/inbox/<uuid>`, `#composerInput` | ✔ **reale, solo osservazione** | Claude in Chrome, 07/11/2026; nessun messaggio inviato |
+| Commenti pubblici | rimossi dal codice, dall'interfaccia, dai dati | ✔ | unit (analisi del codice, migrazioni), e2e (dialoghi, rifiuto del tipo) |
+
+### Campagne ed errori
+
+| Caso | Esito | Dove |
+|---|---|---|
+| Creazione, modifica, salvataggio, avvio, pausa, ripresa, stop | ✔ | wizard, coda dinamica, campagna reale |
+| Recupero dopo crash, campagna persistente | ✔ | recupero dopo crash, crash dei messaggi, cicli (riavvio del worker) |
+| Aggiunta e rimozione dinamica, ordinamento | ✔ | coda dinamica; «In cima» conserva l'ordine (unit) |
+| Limiti giornalieri | ✔ | snapshot e soglie, messaggi A (soglia 3) |
+| **Chat rotta: like e offerte continuano** (bug 1.4.0) | ✔ | «chat rotta non blocca like e offerte»: 3/3 like e 3/3 offerte, messaggi sospesi con diagnosi, pausa solo a fine coda |
+| Modulo spento: gli altri tipi partono | ✔ | Health Center: like spenti, offerte eseguite, like in attesa |
+| Circuit breaker | ✔ | Health Center (offerte isolate), errori dei messaggi («Chiedi info» assente) |
+| Errori di fila per tipo / per campagna | ✔ | unit + e2e (messaggi sospesi dopo 3) |
+
+### Cicli
+
+| Caso | Esito | Dove |
+|---|---|---|
+| Annuncio completato riattivato | ✔ | cicli |
+| Nuovo ciclo identificato (numero, id, tabella) | ✔ | cicli (unit + interfaccia) |
+| Cronologia precedente intatta (date, esiti, ledger) | ✔ | cicli |
+| Duplicati accidentali bloccati | ✔ | cicli (altra campagna: 2 saltate, 0 offerte), unit (stesso ciclo) |
+| Errore nel primo ciclo non compromette il successivo | ✔ | unit (fallite escluse, completate ripetute) |
+| Refresh di un annuncio non tocca gli altri | ✔ | unit + cicli |
+| Riavvio dell'estensione | ✔ | cicli (worker terminato dopo il nuovo ciclo) |
+| Conferma esplicita e riapprovazione | ✔ | cicli |
+
+### Interfaccia
+
+| Caso | Esito | Dove |
+|---|---|---|
+| Notifiche in alto a sinistra non coperte | ✔ | interfaccia 2.0: posizione delle pastiglie misurata (Avviso, Critico, Info) |
+| «Posizione» In cima predefinita, salvata e riproposta | ✔ | interfaccia 2.0 + unit |
+| Nessun controllo dei commenti | ✔ | interfaccia 2.0 (creazione, aggiunta) + analisi del codice |
+| Tutte le pagine si aprono senza errori JavaScript | ✔ | installazione e interfaccia |
+
+### Non eseguibili qui
+
+| Test | Motivo |
+|---|---|
+| Invio di un messaggio su Vinted reale (A e B) | serve la tua sessione e il destinatario autorizzato: tabella più sotto |
+| Chat in una scheda **in background** su Vinted reale | il browser controllato da Claude in Chrome risulta sempre «visibile»; in Chrome headless non si riproduce. Per questo la 2.0.0 porta la scheda in primo piano durante i messaggi |
+| Content script assente nella pagina della chat | non riproducibile con il Vinted finto (il manifest lo inserisce sempre); il reinserimento è coperto solo dal codice e dalla diagnosi (unit) |
+| Edge, Brave, GitHub Actions | non disponibili in questo ambiente |
+
 ## Messaggi privati (1.4.0)
 
 Scenari in `tests/e2e/messages.py`, con l'estensione vera, il motore vero e la chat finta. Tutti **simulati**: nessun messaggio è stato inviato su Vinted reale.
@@ -97,15 +155,15 @@ Scenari in `tests/e2e/messages.py`, con l'estensione vera, il motore vero e la c
 |---|---|---|---|
 | 1 | Pulsante «Chiedi info» presente | ✔ | messaggi A |
 | 2 | Pulsante assente / disabilitato | ✔ | errori: assente → modulo isolato (circuit breaker), disabilitato → fallito non ripetibile |
-| 3 | Chat che si apre con ritardo | ✔ | messaggi B: 2 s, nella stessa pagina (navigazione interna); invio lento: messaggio dopo 3 s |
+| 3 | Chat che si apre con ritardo | ✔ | messaggi B: 2 s, nella stessa pagina (navigazione interna); pagina nuova come su vinted.it; scheda nuova; invio lento: messaggio dopo 3 s |
 | 4 | Campo `#composerInput` presente | ✔ | tutti |
-| 5 | Campo non trovato | ✔ | errori: non inviato, pausa dopo 3 tentativi, nessun clic |
+| 5 | Campo non trovato | ✔ | errori: 3 tentativi distanziati, poi fallito con diagnosi, messaggi sospesi, nessun clic (2.0.0) |
 | 6 | Pulsante freccia inizialmente disabilitato | ✔ | la chat finta lo abilita solo con testo, come quella vera |
 | 7 | Pulsante che si abilita dopo la compilazione | ✔ | tutti; mai abilitato → fallito ripetibile, 0 clic |
 | 8 | Invio automatico e messaggio visibile | ✔ | messaggi A: 2/2, un clic per messaggio |
 | 9 | Modalità manuale senza clic automatico | ✔ | messaggi B: 0 clic in 4 s, scheda in primo piano, notifica «Premi Invia» |
 | 10 | Clic manuale dell'utente e rilevamento | ✔ | messaggi B: clic sul pulsante e tasto Invio, anche con testo cambiato |
-| 11 | Timeout manuale | ✔ | timeout B: attesa portata a 5 s nelle impostazioni (il predefinito è 240 s, stesso codice) → non inviato, ripetibile, pausa |
+| 11 | Timeout manuale | ✔ | timeout B: attesa portata a 5 s nelle impostazioni (il predefinito è 240 s, stesso codice) → non inviato, ripetibile, messaggi sospesi |
 | 12 | Campo svuotato ma messaggio non visibile | ✔ | A: «clear-only» → da verificare, 1 clic; B: campo svuotato a mano → da verificare |
 | 13 | CAPTCHA durante l'operazione | ✔ | all'apertura della chat → pausa, non inviato; dopo il clic → da verificare |
 | 14 | Ritorno all'annuncio originale | ✔ | messaggi A e B: richiesta della pagina dell'annuncio dopo ogni invio, scheda finale sull'annuncio |
@@ -158,6 +216,10 @@ Ordine consigliato: campagna con **1** annuncio del tuo account principale, dall
 | ledger (1.4.0) | dopo due tentativi non partiti di fila l'annuncio restava «in corso» per sempre | ritorno allo stato precedente al tentativo |
 | schede (1.4.0) | pagina cambiata durante un comando = «non inviato» (rischio di doppioni) | solo «comando mai arrivato» è non inviato |
 | rotazione (test) | ordine di rotazione casuale tra annunci aggiunti nello stesso istante | ordine di aggiunta stabile (`addSeq`) |
+| campagne (2.0.0) | un messaggio che non apriva la chat bloccava like e offerte di tutta la coda | rinvio per operazione, sospensione per tipo, breaker senza pausa globale |
+| «In cima» (2.0.0) | gli annunci aggiunti insieme finivano in ordine inverso | il gruppo va in cima nel suo ordine |
+| notifiche (2.0.0) | pastiglia «Avviso» in una colonna da 26 px, sopra il testo | colonna dedicata (`.feed.notes`) |
+| «Ripeti falliti» (2.0.0) | il conteggio dei tentativi non ripartiva | azzerato a ogni «Ripeti falliti» |
 | recupero dopo crash (test) | controllava «nessun like prima del riavvio» dopo il riavvio, quando la campagna poteva già averlo messo | conteggio preso alla chiusura del browser + controllo «al massimo un like dopo» |
 
 ## Prova manuale consigliata su Vinted reale

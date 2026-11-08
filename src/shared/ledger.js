@@ -5,16 +5,30 @@
  * per tipo: un like già messo non blocca un'offerta, e viceversa.
  * Una voce "running" o "verify" blocca: l'esito potrebbe essere già arrivato a
  * Vinted, quindi ripetere rischierebbe un duplicato.
+ *
+ * Cicli (2.0.0): un'interazione completata blocca sempre i duplicati accidentali
+ * (stessa campagna e stesso ciclo, oppure un'altra campagna). Si ripete solo in un
+ * NUOVO CICLO avviato apposta dall'utente («Riprocessa»): l'operazione ha newCycle
+ * e un cycleKey diverso da quello dell'ultima esecuzione. "running" e "verify"
+ * bloccano anche nei nuovi cicli: un esito incerto non si ripete mai da solo.
  */
 
 export const ledgerKey = (accountId, listingId, type) => `${accountId}|${listingId}|${type}`;
+export const cycleKey = (campaignId, cycleId) => `${campaignId}#${cycleId || 1}`;
 
-/** Può partire questa interazione? */
-export function canInteract(entry) {
+/**
+ * Può partire questa interazione?
+ * @param ctx { cycleKey, newCycle } dell'operazione che sta per partire
+ */
+export function canInteract(entry, ctx = {}) {
   if (!entry || entry.simulated) return { allowed: true, reason: "mai eseguita" };
   switch (entry.status) {
-    case "completed":
-      return { allowed: false, code: "done", reason: `già eseguita il ${new Date(entry.at).toLocaleString("it-IT")}` };
+    case "completed": {
+      const when = new Date(entry.at).toLocaleString("it-IT");
+      if (ctx.cycleKey && entry.cycleKey === ctx.cycleKey) return { allowed: false, code: "sameCycle", reason: `già eseguita in questo ciclo (${when})` };
+      if (ctx.newCycle) return { allowed: true, code: "newCycle", reason: `nuovo ciclo scelto da te (ultima volta il ${when})` };
+      return { allowed: false, code: "done", reason: `già eseguita il ${when}` };
+    }
     case "running":
       return { allowed: false, code: "running", reason: "esito non ancora registrato: va verificata prima di ripeterla" };
     case "verify":
@@ -32,7 +46,7 @@ export function ledgerUpdate(prev, patch) {
   const at = patch.at || Date.now();
   const base = prev || { history: [] };
   const next = { ...base, ...patch, at };
-  next.history = [...(base.history || []), { at, status: patch.status, campaignId: patch.campaignId || null }].slice(-20);
+  next.history = [...(base.history || []), { at, status: patch.status, campaignId: patch.campaignId || null, cycleKey: patch.cycleKey || null }].slice(-50);
   return next;
 }
 
@@ -64,7 +78,7 @@ export function summarize(entries) {
   const out = {};
   for (const e of entries) {
     if (e.simulated) continue;
-    const s = (out[e.listingId] ||= { like: null, comment: null, offer: null, message: null, accounts: new Set() });
+    const s = (out[e.listingId] ||= { like: null, offer: null, message: null, accounts: new Set() });
     s[e.type] = e.status;
     s.accounts.add(e.accountId);
   }

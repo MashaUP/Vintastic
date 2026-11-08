@@ -28,7 +28,7 @@ export const PAGES = [
   { id: "listings", label: "Annunci", icon: "list", mod: listings },
   { id: "campaigns", label: "Campagne", icon: "zap", mod: campaigns },
   { id: "offers", label: "Smart Offer", icon: "tag", mod: offers },
-  { id: "suggestions", label: "Suggerimenti AI", icon: "sparkles", mod: suggestions },
+  { id: "suggestions", label: "Domande al venditore", icon: "sparkles", mod: suggestions },
   { id: "notifications", label: "Notifiche", icon: "bell", mod: notifications },
   { id: "stats", label: "Statistiche", icon: "chart", mod: stats },
   { id: "logs", label: "Log", icon: "file", mod: logs },

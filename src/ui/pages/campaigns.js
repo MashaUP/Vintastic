@@ -9,6 +9,7 @@ import { SORTS } from "../../shared/filters.js";
 import { computeOffer, describeOffer, DEFAULT_OFFER } from "../../shared/offer.js";
 import { offerEditor } from "./offers.js";
 import { messageEditor } from "../message-editor.js";
+import { cycleSummary } from "../../shared/queue.js";
 
 let detailTimer = null;
 let liveNodes = {};
@@ -65,7 +66,7 @@ export async function createDialog(ctx, preset = {}) {
   const chosen = new Set(preset.types || ["like"]);
   const orderList = h("ul", { class: "widget-cfg", style: { listStyle: "none", padding: 0 } });
   const drawOrder = () => orderList.replaceChildren(...order.map((t, i) => h("li", {},
-    h("label", { class: "check grow" }, h("input", { type: "checkbox", checked: chosen.has(t), onchange: (e) => { e.target.checked ? chosen.add(t) : chosen.delete(t); } }), OP_LABEL[t], t === "comment" ? h("span", { class: "muted small" }, " — suggerimento da copiare") : t === "message" ? h("span", { class: "muted small" }, " — «Chiedi info», solo ai destinatari autorizzati") : null),
+    h("label", { class: "check grow" }, h("input", { type: "checkbox", checked: chosen.has(t), onchange: (e) => { e.target.checked ? chosen.add(t) : chosen.delete(t); } }), OP_LABEL[t], t === "message" ? h("span", { class: "muted small" }, " — «Chiedi info», solo ai destinatari autorizzati") : null),
     h("button", { class: "btn ghost sm", "aria-label": "Prima", disabled: i === 0, onclick: () => { [order[i - 1], order[i]] = [order[i], order[i - 1]]; drawOrder(); } }, icon("up", 14)),
     h("button", { class: "btn ghost sm", "aria-label": "Dopo", disabled: i === order.length - 1, onclick: () => { [order[i + 1], order[i]] = [order[i], order[i + 1]]; drawOrder(); } }, icon("down", 14)))));
   drawOrder();
@@ -170,6 +171,18 @@ async function detail(ctx, id) {
       ["auth", "captcha"].includes(c.pauseReason) ? h("button", { class: "btn sm", onclick: () => rpc("session.openLogin", { origin: c.origin }) }, icon("external", 14), "Apri Vinted") : null,
       c.pauseReason === "snapshot" ? h("button", { class: "btn sm primary", onclick: () => previewDialog(ctx, id) }, "Rivedi e approva") : null)) : null;
 
+  const suspended = Object.entries(c.suspended || {});
+  const suspendBox = suspended.length ? h("div", { class: "callout warn" },
+    h("b", {}, "Operazioni sospese in questa campagna. "), "Gli altri tipi continuano normalmente.",
+    h("ul", { class: "small", style: { margin: "6px 0 0" } }, suspended.map(([t, v]) => h("li", {}, h("b", {}, OP_LABEL[t] || t), `: ${v.reason}`))),
+    c.status !== "paused" ? h("div", { class: "small muted" }, "Per riprovarle: Pausa e poi Riprendi.") : null) : null;
+  const cyc = cycleSummary(items);
+  const cyclesCard = cyc.length > 1 || (c.cycle?.n || 1) > 1 ? h("div", { class: "card" },
+    h("h3", {}, icon("refresh", 16), `Cicli (attuale: ${c.cycle?.n || 1})`),
+    h("div", { class: "table-wrap" }, h("table", { class: "table" },
+      h("thead", {}, h("tr", {}, ["Ciclo", "Annunci", "Completate", "Fallite", "Da verificare", "Saltate", "In attesa", "Prima", "Ultima"].map((x) => h("th", {}, x)))),
+      h("tbody", {}, cyc.map((r) => h("tr", {}, h("td", {}, h("b", {}, String(r.cycle))), h("td", {}, String(r.items)), h("td", {}, String(r.completed)), h("td", {}, String(r.failed)), h("td", {}, String(r.verify)), h("td", {}, String(r.skipped)), h("td", {}, String(r.pending)), h("td", { class: "small" }, r.first ? fmtDate(r.first) : "—"), h("td", { class: "small" }, r.last ? fmtDate(r.last) : "—")))))),
+    h("p", { class: "small muted" }, "Ogni ciclo ripete le operazioni scelte. La cronologia dei cicli precedenti (date, esiti, errori) resta in ogni annuncio e nel registro.")) : null;
   const simInfo = c.dryRun && c.status === "completed" ? h("div", { class: "callout info" }, h("b", {}, "Simulazione completata: niente è stato inviato a Vinted. "),
     "Le operazioni segnate «Simulato» mostrano cosa sarebbe successo. Per farle davvero premi «Esegui davvero su Vinted».") : null;
   const info = h("div", { class: "card" }, h("div", { class: "three" },
@@ -186,7 +199,8 @@ async function detail(ctx, id) {
     h("div", { class: "panel-head" }, h("h2", {}, icon("layers"), "Coda"), h("span", { class: "muted small" }, "Modificabile anche durante l'esecuzione: le operazioni completate restano invariate."), h("span", { class: "grow" }),
       h("button", { class: "btn sm", onclick: () => addListingsDialog(ctx, c) }, icon("plus", 14), "Aggiungi annunci"),
       h("button", { class: "btn sm", onclick: () => sortDialog(ctx, c) }, icon("shuffle", 14), "Ordina"),
-      h("button", { class: "btn sm", disabled: !p.failed, onclick: () => act("campaigns.mutate", { action: "retry", args: {} }) }, icon("refresh", 14), "Ripeti falliti")),
+      h("button", { class: "btn sm", disabled: !p.failed, onclick: () => act("campaigns.mutate", { action: "retry", args: {} }) }, icon("refresh", 14), "Ripeti falliti"),
+      h("button", { class: "btn sm", title: "Rielabora gli annunci già completati in un nuovo ciclo", onclick: () => cycleDialog(ctx, c, items, null) }, icon("history", 14), "Nuovo ciclo…")),
     order.length ? h("div", { class: "table-wrap" }, h("table", { class: "table" },
       h("thead", {}, h("tr", {}, ["#", "", "Annuncio", "Prezzo", "Operazioni", "Priorità", ""].map((x) => h("th", {}, x)))),
       h("tbody", {}, order.map((it, idx) => queueRow(ctx, c, it, idx, act))))) : h("div", { class: "empty" }, "Coda vuota: aggiungi annunci."),
@@ -198,7 +212,7 @@ async function detail(ctx, id) {
 
   return h("div", { class: "grid" },
     h("div", { class: "page-head" }, h("a", { href: "#campaigns", class: "btn ghost sm" }, "← Campagne"), h("div", { class: "grow" }, h("h1", {}, c.name)), controls),
-    simInfo, pauseBox, info, queue, h("div", { class: "two" }, settingsCard, history));
+    simInfo, pauseBox, suspendBox, info, queue, cyclesCard, h("div", { class: "two" }, settingsCard, history));
 }
 
 function queueRow(ctx, c, it, idx, act) {
@@ -208,13 +222,20 @@ function queueRow(ctx, c, it, idx, act) {
   const prio = h("select", { class: "input", style: { width: "110px" }, "aria-label": "Priorità", disabled: !editable }, h("option", { value: "1" }, "Alta"), h("option", { value: "0" }, "Normale"), h("option", { value: "-1" }, "Bassa"));
   prio.value = String(it.priority || 0);
   prio.addEventListener("change", () => act("campaigns.mutate", { action: "priority", args: { id: it.id, priority: Number(prio.value) } }));
+  const cycleN = Math.max(1, ...it.ops.map((o) => o.cycle || 1));
+  const reprocessable = it.ops.some((o) => o.status === "completed" || (o.status === "skipped" && o.result?.ledger === "done"));
   return h("tr", {},
     h("td", { class: "muted small" }, String(idx + 1)),
     h("td", {}, L.photo ? h("img", { class: "thumb", src: L.photo, alt: "", loading: "lazy" }) : h("div", { class: "thumb" })),
-    h("td", { style: { maxWidth: "300px" } }, h("a", { href: L.url, target: "_blank", rel: "noopener", style: { color: "var(--text)" } }, L.title || it.listingId), h("div", { class: "muted small" }, `${L.sellerLogin || L.sellerId || ""}${L.status && L.status !== "active" ? ` · ${L.status}` : ""}`)),
+    h("td", { style: { maxWidth: "300px" } }, h("a", { href: L.url, target: "_blank", rel: "noopener", style: { color: "var(--text)" } }, L.title || it.listingId), h("div", { class: "muted small" }, `${L.sellerLogin || L.sellerId || ""}${L.status && L.status !== "active" ? ` · ${L.status}` : ""}`),
+      cycleN > 1 || it.pastCycles?.length ? h("div", { class: "row", style: { gap: "4px", marginTop: "2px" } },
+        cycleN > 1 ? h("span", { class: "pill info", title: "Ciclo di esecuzione attuale di questo annuncio" }, `Ciclo ${cycleN}`) : null,
+        it.pastCycles?.length ? h("button", { class: "btn ghost sm", onclick: () => pastCyclesDialog(it) }, `${it.pastCycles.length} cicli precedenti`) : null) : null),
     h("td", {}, fmtEuro(L.price, L.currency)),
-    h("td", {}, h("div", { class: "ops" }, it.ops.map((o) => h("span", { class: `op-chip ${o.status}`, title: [o.error, o.reason].filter(Boolean).join(" · ") || o.status },
+    h("td", {}, h("div", { class: "ops" }, it.ops.map((o) => h("span", { class: `op-chip ${o.status}`, title: [o.error, o.reason, o.retryAfter > Date.now() ? `nuovo tentativo alle ${new Date(o.retryAfter).toLocaleTimeString("it-IT")} (tentativo ${(o.attempts || 0) + 1})` : null, c.suspended?.[o.type] && ["waiting", "prepared"].includes(o.status) ? `sospesa: ${c.suspended[o.type].reason}` : null].filter(Boolean).join(" · ") || o.status },
       OP_LABEL[o.type], o.type === "offer" && o.amount ? ` ${fmtEuro(o.amount)}` : "", o.type === "message" && o.mode ? ` ${o.mode === "manual" ? "B" : "A"}` : "", " ", statusPill(o.status, "op", o.result?.simulated),
+      o.retryAfter > Date.now() && ["waiting", "prepared"].includes(o.status) ? h("span", { class: "pill warn", style: { marginLeft: "4px" } }, `riprova ${new Date(o.retryAfter).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}`) : null,
+      c.suspended?.[o.type] && ["waiting", "prepared"].includes(o.status) ? h("span", { class: "pill warn", style: { marginLeft: "4px" } }, "sospesa") : null,
       o.status === "verify" ? h("button", { class: "btn ghost sm", title: "Risolvi", onclick: () => resolveDialog(ctx, c, it, o) }, "risolvi") : null)))),
     h("td", {}, prio),
     h("td", {}, h("div", { class: "row" },
@@ -222,8 +243,71 @@ function queueRow(ctx, c, it, idx, act) {
       h("button", { class: "btn ghost sm", title: "Giù", "aria-label": "Sposta giù", disabled: !editable, onclick: () => act("campaigns.mutate", { action: "move", args: { id: it.id, where: "down" } }) }, icon("down", 14)),
       h("button", { class: "btn ghost sm", title: "Prossimo", disabled: !editable, onclick: () => act("campaigns.mutate", { action: "move", args: { id: it.id, where: "top" } }) }, "⤒"),
       h("button", { class: "btn ghost sm", title: "Modifica operazioni", disabled: running, onclick: () => editItemDialog(ctx, c, it) }, icon("edit", 14)),
+      h("button", { class: "btn ghost sm", title: reprocessable ? "Riprocessa questo annuncio in un nuovo ciclo" : "Niente da riprocessare: nessuna operazione conclusa", "aria-label": "Riprocessa", disabled: !reprocessable || running, onclick: () => cycleDialog(ctx, c, [it], [it.id]) }, icon("history", 14)),
       h("button", { class: "btn ghost sm", title: "Salta", disabled: !editable || running, onclick: () => act("campaigns.mutate", { action: "skip", args: { id: it.id } }) }, "Salta"),
       h("button", { class: "btn ghost sm", title: "Rimuovi dalla coda", "aria-label": "Rimuovi", disabled: running, onclick: () => act("campaigns.mutate", { action: "remove", args: { ids: [it.id] } }) }, icon("trash", 14)))));
+}
+
+/** Cronologia dei cicli di un annuncio: niente si cancella quando lo si riprocessa. */
+function pastCyclesDialog(it) {
+  const rows = (it.pastCycles || []).flatMap((p) => p.ops.map((o) => h("tr", {},
+    h("td", {}, String(p.cycle)), h("td", {}, OP_LABEL[o.type] || o.type), h("td", {}, statusPill(o.status, "op", o.result?.simulated)),
+    h("td", { class: "small" }, o.finishedAt ? fmtDate(o.finishedAt) : "—"), h("td", { class: "small" }, o.amount ? fmtEuro(o.amount) : ""),
+    h("td", { class: "small muted" }, [o.error, o.reason].filter(Boolean).join(" · ")))));
+  modal(`Cicli precedenti — ${it.listing?.title || it.listingId}`, h("div", { class: "table-wrap" }, h("table", { class: "table" },
+    h("thead", {}, h("tr", {}, ["Ciclo", "Operazione", "Esito", "Quando", "Importo", "Note"].map((x) => h("th", {}, x)))), h("tbody", {}, rows))),
+  [{ label: "Chiudi", value: true }], { wide: true });
+}
+
+/**
+ * Nuovo ciclo: mostra ESATTAMENTE cosa verrà ripetuto (e cosa no, con il motivo) prima di
+ * chiedere la conferma. Poi l'anteprima della campagna va approvata di nuovo.
+ */
+async function cycleDialog(ctx, c, items, onlyIds) {
+  const candidates = (items || []).filter((i) => !i.removed && i.ops.some((o) => o.status === "completed" || (o.status === "skipped" && o.result?.ledger === "done")));
+  if (!candidates.length) return toast("Niente da riprocessare", "Nessun annuncio ha operazioni concluse.", "info");
+  const types = OP_TYPES.map((t) => ({ t, cb: h("input", { type: "checkbox", checked: candidates.some((i) => i.ops.some((o) => o.type === t)) }) }));
+  const picks = candidates.map((i) => ({ i, cb: h("input", { type: "checkbox", checked: !onlyIds || onlyIds.includes(i.id) }) }));
+  const out = h("div", { class: "grid" });
+  let last = null;
+  const sel = () => ({ itemIds: picks.filter((p) => p.cb.checked).map((p) => p.i.id), types: types.filter((x) => x.cb.checked).map((x) => x.t) });
+  const draw = async () => {
+    const s = sel();
+    last = await rpc("campaigns.cyclePreview", { id: c.id, ...s }).catch((e) => ({ error: e.message }));
+    if (last.error) return out.replaceChildren(h("div", { class: "callout warn" }, last.error));
+    const by = (list) => Object.entries(list.reduce((m, x) => ({ ...m, [x.type]: (m[x.type] || 0) + 1 }), {})).map(([t, k]) => `${k} ${OP_LABEL[t].toLowerCase()}`).join(", ") || "niente";
+    out.replaceChildren(
+      h("div", { class: `callout ${last.repeat.length ? "info" : "warn"}` }, h("b", {}, `Ciclo ${last.nextCycle}: si ripeteranno ${last.repeat.length} operazioni su ${last.items} annunci`), last.repeat.length ? ` (${by(last.repeat)}).` : "."),
+      last.repeat.length ? h("div", { class: "table-wrap", style: { maxHeight: "260px", overflow: "auto" } }, h("table", { class: "table" },
+        h("thead", {}, h("tr", {}, ["Annuncio", "Operazione", "Ultimo esito", "Quando"].map((x) => h("th", {}, x)))),
+        h("tbody", {}, last.repeat.map((r) => h("tr", {}, h("td", {}, r.title.slice(0, 50)), h("td", {}, OP_LABEL[r.type], r.amount ? ` ${fmtEuro(r.amount)}` : ""),
+          h("td", { class: "small" }, r.noRepeat ? "saltata perché già fatta prima" : r.simulated ? "simulata" : `completata (ciclo ${r.cycle})`), h("td", { class: "small" }, r.at ? fmtDate(r.at) : "—")))))) : null,
+      last.excluded.length ? h("details", {}, h("summary", { class: "small" }, `${last.excluded.length} operazioni NON ripetute (${by(last.excluded)})`),
+        h("ul", { class: "small" }, last.excluded.slice(0, 200).map((r) => h("li", {}, `${r.title.slice(0, 40)} · ${OP_LABEL[r.type]}: ${r.why}`)))) : null,
+      h("ul", { class: "small muted", style: { margin: 0 } },
+        h("li", {}, "Le operazioni da verificare non si ripetono mai da sole: prima risolvile in Recupero."),
+        h("li", {}, "Le offerte si ricalcolano sul prezzo attuale; i messaggi partono solo verso i destinatari autorizzati."),
+        h("li", {}, "Vinted tiene un solo like per annuncio: se il like c'è ancora, viene registrato come già presente."),
+        h("li", {}, "Soglie giornaliere, pause per 403/429/CAPTCHA e timer valgono come sempre.")));
+  };
+  for (const x of [...types.map((t) => t.cb), ...picks.map((p) => p.cb)]) x.addEventListener("change", draw);
+  await draw();
+  const ok = await modal("Nuovo ciclo: riprocessare annunci già elaborati", h("div", { class: "grid" },
+    h("div", {}, h("div", { class: "small muted" }, "Operazioni da ripetere"), h("div", { class: "row" }, types.map(({ t, cb }) => h("label", { class: "check" }, cb, OP_LABEL[t])))),
+    candidates.length > 1 || !onlyIds ? h("details", { open: Boolean(onlyIds) }, h("summary", { class: "small" }, `Annunci (${candidates.length} con operazioni concluse)`),
+      h("div", { class: "row", style: { margin: "6px 0" } },
+        h("button", { class: "btn ghost sm", onclick: () => { picks.forEach((p) => { p.cb.checked = true; }); draw(); } }, "Tutti"),
+        h("button", { class: "btn ghost sm", onclick: () => { picks.forEach((p) => { p.cb.checked = false; }); draw(); } }, "Nessuno")),
+      h("div", { style: { maxHeight: "180px", overflow: "auto" } }, picks.map(({ i, cb }) => h("label", { class: "check", style: { display: "flex" } }, cb, i.listing?.title || i.listingId)))) : null,
+    out), [{ label: "Annulla", value: false }, { label: "Avvia il nuovo ciclo", cls: "primary", handler: () => (last?.repeat?.length ? true : (toast("Niente da ripetere", "Scegli almeno un annuncio e un'operazione conclusi.", "warning"), false)) }], { wide: true });
+  if (!ok) return;
+  try {
+    const r = await rpc("campaigns.newCycle", { id: c.id, ...sel(), confirm: true });
+    if (r.ok === false) return toast("Nessun nuovo ciclo", r.rejected, "warning");
+    toast(`Ciclo ${r.cycle} pronto`, `${r.repeated} operazioni su ${r.items} annunci. Rivedi e approva l'anteprima per partire.`, "success");
+    await ctx.refresh();
+    previewDialog(ctx, c.id);
+  } catch (e) { toast("Nuovo ciclo non creato", e.message, "error"); }
 }
 
 async function editItemDialog(ctx, c, it) {
@@ -241,11 +325,6 @@ async function editItemDialog(ctx, c, it) {
       if (o.type === "message") {
         const ta = h("textarea", { class: "input", rows: 2, maxlength: 1000, value: o.textLocked ? o.text || "" : "", placeholder: o.text ? `Della campagna: ${o.text.slice(0, 80)}${o.text.length > 80 ? "…" : ""}` : "Testo per questo annuncio (vuoto = quello della campagna)" });
         ta.addEventListener("change", () => { patch[o.id] = { ...(patch[o.id] || {}), text: ta.value }; });
-        row.append(ta);
-      }
-      if (o.type === "comment") {
-        const ta = h("input", { class: "input", value: o.comment || "", placeholder: "Testo (vuoto = suggerimento automatico)" });
-        ta.addEventListener("change", () => { patch[o.id] = { ...(patch[o.id] || {}), comment: ta.value }; });
         row.append(ta);
       }
       const conf = h("input", { type: "checkbox", checked: o.requireConfirm });
@@ -317,7 +396,9 @@ async function addListingsDialog(ctx, c) {
   topN.addEventListener("change", () => { customN.style.display = topN.value === "custom" ? "" : "none"; if (topN.value === "custom") customN.focus(); });
   const range = h("select", { class: "input" }, h("option", { value: "all" }, "Qualsiasi data"), h("option", { value: "24h" }, "Ultime 24 ore"), h("option", { value: "3d" }, "Ultimi 3 giorni"), h("option", { value: "7d" }, "Ultimi 7 giorni"), h("option", { value: "30d" }, "Ultimi 30 giorni"));
   const types = OP_TYPES.map((t) => ({ t, cb: h("input", { type: "checkbox", checked: (c.opsDefaults?.types || []).includes(t) }) }));
-  const where = h("select", { class: "input" }, h("option", { value: "end" }, "In fondo"), h("option", { value: "start" }, "In cima"));
+  // «Posizione»: quella salvata nella campagna; se non c'è, la predefinita (In cima).
+  const where = h("select", { class: "input", "aria-label": "Posizione" }, h("option", { value: "start" }, "In cima"), h("option", { value: "end" }, "In fondo"));
+  where.value = c.addPosition || ctx.settings.campaignDefaults?.addPosition || "start";
   const excl = h("input", { type: "checkbox", checked: true });
   const ok = await modal("Aggiungi annunci alla coda", h("div", { class: "grid" },
     h("label", { class: "field" }, "Venditore", seller), h("div", { class: "row", style: { alignItems: "flex-start" } }, h("label", { class: "field grow" }, "Quanti (i più recenti)", topN, customN), h("label", { class: "field grow" }, "Periodo", range)),
@@ -332,7 +413,7 @@ async function addListingsDialog(ctx, c) {
   const n = topN.value === "custom" ? Math.max(1, Math.floor(Number(customN.value) || 0)) : topN.value;
   if (topN.value === "custom" && !(n > 0)) return toast("Scrivi quanti annunci", "", "warning");
   const base = { sellerId: seller.value || undefined, topN: n, range: range.value, dateField: "auto", status: "active" };
-  const res = await rpc("listings.query", { filters: { ...base, excludeDone: excl.checked ? chosen.filter((t) => t !== "comment") : undefined }, limit: 5000, withIds: true });
+  const res = await rpc("listings.query", { filters: { ...base, excludeDone: excl.checked ? chosen : undefined }, limit: 5000, withIds: true });
   if (!res.ids.length) {
     // Perché è vuoto: si spiega invece di dire solo «nessun annuncio».
     const noExcl = excl.checked ? await rpc("listings.query", { filters: base, limit: 1 }) : res;
@@ -407,8 +488,7 @@ export async function previewDialog(ctx, id) {
         h("td", {}, fmtEuro(i.listing?.price)),
         h("td", {}, OP_LABEL[o.type], o.requireConfirm ? h("span", { class: "pill info", style: { marginLeft: "6px" } }, "con conferma") : null),
         h("td", { class: "small" }, o.type === "offer" ? (o.amount ? h("span", {}, h("b", {}, fmtEuro(o.amount)), " ", h("span", { class: "muted", title: (o.offerPreview?.steps || []).join("\n") }, (o.offerPreview?.warnings || []).join(" "))) : h("span", { class: "pill bad" }, "importo mancante"))
-          : o.type === "comment" ? "Suggerimento da copiare (non inviato)"
-            : o.type === "message" ? (o.text ? h("span", {}, h("span", { class: "pill", style: { marginRight: "6px" } }, o.mode === "manual" ? "B · premi tu Invia" : "A · automatico"), h("span", { style: { whiteSpace: "pre-wrap" } }, o.text)) : h("span", { class: "pill bad" }, o.msgError || "testo mancante"))
+          : o.type === "message" ? (o.text ? h("span", {}, h("span", { class: "pill", style: { marginRight: "6px" } }, o.mode === "manual" ? "B · premi tu Invia" : "A · automatico"), h("span", { style: { whiteSpace: "pre-wrap" } }, o.text)) : h("span", { class: "pill bad" }, o.msgError || "testo mancante"))
               : "Preferito")))))));
   const actions = [{ label: "Chiudi", value: false }];
   actions.push({ label: "Approva anteprima", value: "approve", cls: v.errors.filter((e) => !/anteprima/.test(e)).length ? "" : "primary" });

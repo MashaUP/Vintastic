@@ -11,7 +11,7 @@ TEMPLATES = [{"id": "a", "name": "Disponibile", "text": "Ciao! {titolo} è ancor
              {"id": "b", "name": "Prezzo", "text": "Salve, per {titolo} a {prezzo} fai spedizione veloce?"}]
 
 
-async def setup(env, recipients=(SELLER_ID,), mode="auto", wait=None, text=None):
+async def setup(env, recipients=(SELLER_ID,), mode="auto", wait=None, text=None, retry=(2, 2)):
     await env.open_ui()
     await env.fast_settings()
     await env.login_vinted()
@@ -21,7 +21,8 @@ async def setup(env, recipients=(SELLER_ID,), mode="auto", wait=None, text=None)
         m["manualWaitSeconds"] = wait
     if text:
         m["text"] = text
-    await env.rpc("settings.save", {"patch": {"messages": m}})
+    # Nuovi tentativi di un'operazione non partita: brevi nei test (predefinito 60 s e 300 s).
+    await env.rpc("settings.save", {"patch": {"messages": m, "opRetry": {"attempts": 3, "delaysSec": list(retry)}}})
 
 
 async def msg_campaign(env, n=1, types=("message",), dry=False, message=None, offset=0):
@@ -194,8 +195,11 @@ async def t_msg_manual_timeout(env):
     c, _ = await msg_campaign(env, 1)
     _, r = await approve_start(env, c["id"])
     check(r["ok"], f"avvio: {r}")
-    p = await finished(env, c["id"], 60, ("paused",))
-    check(p["pauseReason"] == "manual", f"pausa per invio manuale mancato: {p['pauseReason']} {p.get('pauseDetail')}")
+    # 2.0.0: si fermano solo i messaggi della campagna (qui non c'è altro, quindi la campagna finisce).
+    p = await finished(env, c["id"], 60, ("completed", "paused"))
+    check(p["suspended"].get("message", {}).get("kind") == "manual", f"messaggi sospesi per invio manuale mancato: {p.get('suspended')}")
+    notes = await env.rpc("notifications.list", {})
+    check(any("sospesi" in n["title"] for n in notes), "notifica della sospensione")
     op = msg_ops(await env.campaign(c["id"]))[0]
     check(op["status"] == "failed" and op["retryable"] is True and "niente è stato inviato" in op["error"], f"operazione: {op}")
     page = await worker(env, "/inbox/")
@@ -206,7 +210,8 @@ async def t_msg_manual_timeout(env):
     # «Ripeti falliti»: questa volta l'utente svuota il campo senza inviare → esito incerto.
     opened = len([r for r in env.fake.requests if r[1].startswith("/inbox/")])
     await env.rpc("campaigns.mutate", {"id": c["id"], "action": "retry", "args": {}})
-    await env.rpc("campaigns.resume", {"id": c["id"]})
+    r = await env.rpc("campaigns.resume", {"id": c["id"]})
+    check(r["ok"], f"ripresa dopo «Ripeti falliti»: {r}")
     await env.wait_for(lambda: asyncio.sleep(0, len([r for r in env.fake.requests if r[1].startswith("/inbox/")]) > opened), 30, 0.3, "chat riaperta")
     page = await worker(env, "/inbox/")
     await env.wait_for(lambda: _eq(page, op["text"]), 30, 0.3, "testo compilato di nuovo")
@@ -215,7 +220,7 @@ async def t_msg_manual_timeout(env):
     check("svuotato" in msg_ops(x)[0]["error"], f"motivo: {msg_ops(x)[0]['error']}")
     await asyncio.sleep(4)
     check(env.fake.send_clicks == 0 and not env.fake.messages, "nessun nuovo tentativo automatico")
-    return "5 s senza Invio → non inviato, ripetibile, campagna in pausa; campo svuotato a mano senza messaggio → da verificare, non ripetuto"
+    return "5 s senza Invio → non inviato, ripetibile, messaggi sospesi (gli altri tipi continuerebbero); campo svuotato a mano senza messaggio → da verificare, non ripetuto"
 
 
 async def t_msg_failures(env):
@@ -256,12 +261,12 @@ async def t_msg_failures(env):
     clicks = env.fake.send_clicks
     await case(2, {"ask_info": "disabled"}, lambda op, x: op["status"] == "failed" and op["retryable"] is False, "«Chiedi info» disabilitato")
     out.append("«Chiedi info» disabilitato: fallito, non ripetibile")
-    await case(3, {"ask_info": "off"}, lambda op, x: op["status"] == "failed" and x["pauseReason"] == "module", "«Chiedi info» assente")
+    await case(3, {"ask_info": "off"}, lambda op, x: op["status"] == "failed" and "isolato" in op["error"], "«Chiedi info» assente")
     br = await env.rpc("health.breakers")
     await env.rpc("health.resetBreaker", {"module": "message"})
     out.append(f"«Chiedi info» assente: modulo isolato ({(br.get('message') or {}).get('state', 'registrato')})")
-    await case(4, {"composer": False}, lambda op, x: op["status"] == "waiting" and x["pauseReason"] == "errors", "chat senza #composerInput", 150)
-    out.append("chat senza campo: non inviato, pausa dopo 3 tentativi")
+    op = await case(4, {"composer": False}, lambda op, x: op["status"] == "failed" and "Non partita dopo 3 tentativi" in op["error"] and "#composerInput non c'è" in op["error"] and x["suspended"].get("message"), "chat senza #composerInput", 240)
+    out.append("chat senza campo: 3 tentativi distanziati, poi fallito con diagnosi, messaggi sospesi")
     await case(5, {"enable": False}, lambda op, x: op["status"] == "failed" and op["retryable"] is True, "Invia mai abilitato")
     check(env.fake.send_clicks == clicks, "nessun clic se Invia non si abilita")
     out.append("Invia mai abilitato: fallito, ripetibile, 0 clic")
@@ -356,3 +361,45 @@ async def t_msg_crash(env):
         return s if any(r["id"] == "31337" and r["label"] == "Migliore amica" for r in s["messages"]["recipients"]) else None
     await env.wait_for(saved, 10, 0.3, "destinatario salvato dall'interfaccia")
     return "worker terminato con il messaggio pronto → da verificare, non ripetuto; nuova campagna saltata dal ledger; impostazioni persistenti; destinatario aggiunto dall'interfaccia"
+
+
+async def t_msg_isolation(env):
+    """Il bug della 1.4.0: un messaggio che non riesce ad aprire la chat bloccava like e offerte di tutta la coda."""
+    await setup(env, retry=(3, 3))
+    env.fake.chat.update({"composer": False})          # la chat si apre ma il campo non c'è mai
+    c, ids = await msg_campaign(env, 3, types=("like", "offer", "message"))
+    pv, r = await approve_start(env, c["id"])
+    check(r["ok"], f"avvio: {r}")
+    x = await finished(env, c["id"], 300, ("completed", "paused"))
+    data = await env.campaign(c["id"])
+    by = {t: [o for i in data["items"] for o in i["ops"] if o["type"] == t] for t in ("like", "offer", "message")}
+    check(all(o["status"] == "completed" for o in by["like"]) and env.fake.favourites == {int(i) for i in ids}, f"tutti i like: {[o['status'] for o in by['like']]}")
+    check(all(o["status"] == "completed" for o in by["offer"]) and len(env.fake.offers) == 3, f"tutte le offerte: {[o['status'] for o in by['offer']]}")
+    check(x["suspended"].get("message"), f"solo i messaggi sospesi: {x.get('suspended')}")
+    check(not env.fake.messages and env.fake.send_clicks == 0, "nessun messaggio inviato")
+    # Ordine: il like del secondo annuncio parte prima che il messaggio del primo abbia finito i tentativi.
+    seq = [(r[0], r[1]) for r in env.fake.requests if r[1].startswith("/api/v2/user_favourites/toggle") or r[1].startswith("/inbox/")]
+    first_like_after_chat = next((k for k, (_, p) in enumerate(seq) if "favourites" in p and k > 0 and any("/inbox/" in q for _, q in seq[:k])), None)
+    check(first_like_after_chat is not None, f"like eseguiti dopo il primo errore della chat: {seq[:8]}")
+    tried = [o for o in by["message"] if o.get("error")]
+    check(tried and all("#composerInput non c'è" in o["error"] for o in tried), f"diagnosi nell'errore: {[o.get('error') for o in by['message']]}")
+    check(all(o["status"] in ("waiting", "failed") for o in by["message"]), "nessun messaggio dato per inviato")
+    check(x["status"] == "paused" and "Restano solo operazioni bloccate" in (x.get("pauseDetail") or ""), f"pausa spiegata alla fine: {x['status']} {x.get('pauseDetail')}")
+    return f"3/3 like e 3/3 offerte eseguiti nonostante la chat rotta; {len(tried)} messaggi tentati con diagnosi, poi messaggi sospesi; pausa solo a fine coda"
+
+
+async def t_msg_newtab(env):
+    """La chat si apre in una scheda nuova: Vintastic la trova, invia, la chiude; la scheda di lavoro resta sull'annuncio."""
+    await setup(env)
+    env.fake.chat.update({"nav": "newtab"})
+    c, ids = await msg_campaign(env, 1)
+    pv, r = await approve_start(env, c["id"])
+    check(r["ok"], f"avvio: {r}")
+    await finished(env, c["id"], 90)
+    op = msg_ops(await env.campaign(c["id"]))[0]
+    check(op["status"] == "completed" and len(env.fake.messages) == 1, f"messaggio: {op['status']} {op.get('error')}")
+    await asyncio.sleep(1)
+    check(not [p for p in env.ctx.pages if "/inbox/" in p.url], "scheda della chat chiusa")
+    logs = await env.rpc("logs.query", {"limit": 300})
+    check(any("scheda nuova" in (l.get("message") or "") for l in logs), "registrato nei log")
+    return "chat in una scheda nuova: trovata, messaggio verificato, scheda chiusa"

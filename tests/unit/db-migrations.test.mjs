@@ -35,12 +35,44 @@ test("db_v1 → db_v2 → db_v3 conserva i dati e aggiunge store/indici", async 
   db.close();
 });
 
-test("installazione pulita: da 0 a 3 in un colpo", async () => {
+test("installazione pulita: da 0 a 4 in un colpo", async () => {
   const idb = new IDBFactory();
   let steps;
-  const db = await open(idb, 3, (d, t, old) => { steps = runDbUpgrade(d, t, old, 3); });
-  assert.equal(steps.length, 3);
-  assert.equal(db.version, 3);
+  const db = await open(idb, 4, (d, t, old) => { steps = runDbUpgrade(d, t, old, 4); });
+  assert.equal(steps.length, 4);
+  assert.equal(db.version, 4);
+  db.close();
+});
+
+test("db_v3 → db_v4: via i commenti senza corrompere campagne e code, ciclo 1, Posizione In cima", async () => {
+  const idb = new IDBFactory();
+  let db = await open(idb, 3, (d, t, old) => runDbUpgrade(d, t, old, 3));
+  await put(db, "campaigns", { id: "c1", name: "Vecchia", opsDefaults: { types: ["like", "comment", "offer"], order: ["like", "comment", "offer", "message"], comment: "ciao" }, order: ["like", "comment"] });
+  await put(db, "campaigns", { id: "c2", name: "Con posizione", addPosition: "end", opsDefaults: { types: ["comment"] } });
+  await put(db, "items", { id: "i1", campaignId: "c1", listingId: "1", ops: [{ id: "a", type: "like", status: "completed" }, { id: "b", type: "comment", status: "skipped" }, { id: "c", type: "offer", status: "waiting" }] });
+  await put(db, "items", { id: "i2", campaignId: "c1", listingId: "2", ops: [{ id: "d", type: "comment", status: "waiting" }] });
+  await put(db, "ledger", { key: "a|1|comment", listingId: "1", accountId: "a", type: "comment", status: "completed" });
+  await put(db, "ledger", { key: "a|1|like", listingId: "1", accountId: "a", type: "like", status: "completed" });
+  db.close();
+  let steps;
+  db = await open(idb, 4, (d, t, old) => { steps = runDbUpgrade(d, t, old, 4); });
+  assert.deepEqual(steps, ["db_v3 → db_v4"]);
+  const items = Object.fromEntries((await getAll(db, "items")).map((i) => [i.id, i]));
+  assert.deepEqual(items.i1.ops.map((o) => [o.type, o.status, o.cycle]), [["like", "completed", 1], ["offer", "waiting", 1]]);
+  assert.match(items.i1.history.at(-1).detail, /1 commenti tolti/);
+  assert.equal(items.i2.removed, true, "elemento con solo commenti: tolto, non cancellato");
+  assert.equal(items.i2.ops.length, 0);
+  const camps = Object.fromEntries((await getAll(db, "campaigns")).map((c) => [c.id, c]));
+  assert.deepEqual(camps.c1.opsDefaults.types, ["like", "offer"]);
+  assert.deepEqual(camps.c1.opsDefaults.order, ["like", "offer", "message"]);
+  assert.equal(camps.c1.opsDefaults.comment, undefined);
+  assert.deepEqual(camps.c1.order, ["like"]);
+  assert.equal(camps.c1.addPosition, "start", "mai scelta: In cima");
+  assert.equal(camps.c2.addPosition, "end", "scelta salvata: non sovrascritta");
+  assert.deepEqual(camps.c2.opsDefaults.types, ["like"], "nessun tipo rimasto: like come ripiego");
+  assert.equal(camps.c1.cycle.n, 1);
+  const ledger = await getAll(db, "ledger");
+  assert.deepEqual(ledger.map((e) => e.type), ["like"]);
   db.close();
 });
 
@@ -49,7 +81,8 @@ test("rollback: un passo che fallisce lascia il database alla versione precedent
   let db = await open(idb, 1, (d, t, old) => runDbUpgrade(d, t, old, 1));
   await put(db, "listings", { id: "keep", sellerId: "1" });
   db.close();
-  await assert.rejects(open(idb, 4, (d, t, old) => runDbUpgrade(d, t, old, 4)), /db_v4 mancante/);
+  // db_v4 esiste dalla 2.0.0: il passo mancante ora è db_v5.
+  await assert.rejects(open(idb, 5, (d, t, old) => runDbUpgrade(d, t, old, 5)), /db_v5 mancante/);
   db = await open(idb, 1, () => {});
   assert.equal(db.version, 1);
   assert.equal((await getAll(db, "listings"))[0].id, "keep");

@@ -41,7 +41,6 @@ export function computeStats(data, range = "7d", now = Date.now(), from = null, 
     listings: (data.listings || []).filter((l) => inRange(l.firstSeenAt || 0, b)).length,
     listingsAll: (data.listings || []).length,
     likes: count("like"),
-    comments: ops.filter((o) => o.type === "comment" && (o.status === "completed" || o.status === "suggested")).length,
     offers: count("offer"),
     messages: count("message"),
     failed: ops.filter((o) => o.status === "failed").length,
@@ -58,11 +57,10 @@ export function computeStats(data, range = "7d", now = Date.now(), from = null, 
   const days = [];
   const start = Math.max(b.from || (now - 30 * 86400e3), now - 60 * 86400e3);
   for (let t = new Date(start).setHours(12, 0, 0, 0); t <= now + 1; t += 86400e3) days.push(dayKey(t));
-  const series = Object.fromEntries(["like", "comment", "offer", "message", "scan", "failed"].map((k) => [k, Object.fromEntries(days.map((d) => [d, 0]))]));
+  const series = Object.fromEntries(["like", "offer", "message", "scan", "failed"].map((k) => [k, Object.fromEntries(days.map((d) => [d, 0]))]));
   for (const o of ops) {
     const d = dayKey(o.at);
     if (o.status === "completed" && series[o.type]?.[d] != null) series[o.type][d]++;
-    if (o.type === "comment" && o.status === "suggested" && series.comment[d] != null) series.comment[d]++;
     if (o.status === "failed" && series.failed[d] != null) series.failed[d]++;
   }
   for (const s of scans) { const d = dayKey(s.startedAt); if (series.scan[d] != null) series.scan[d] += s.found || 0; }

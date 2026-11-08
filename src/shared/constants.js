@@ -4,10 +4,10 @@
  */
 
 export const APP_NAME = "Vintastic";
-export const VERSION = "1.4.0";
+export const VERSION = "2.0.0";
 export const REPO = "MashaUP/Vintastic";
 export const DB_NAME = "vintastic";
-export const DB_VERSION = 3;            // vedi migrations.js
+export const DB_VERSION = 4;            // vedi migrations.js
 export const EXPORT_SCHEMA = 1;          // formato dei file di backup
 
 /** Domini Vinted supportati (devono coincidere con manifest.json: lo controlla scripts/check.mjs). */
@@ -27,9 +27,9 @@ export const isVintedOrigin = (origin) => {
   }
 };
 
-/** Tipi di interazione. L'ordine è quello predefinito di esecuzione. */
-export const OP_TYPES = ["like", "comment", "offer", "message"];
-export const OP_LABEL = { like: "Like", comment: "Commento", offer: "Offerta", message: "Messaggio privato" };
+/** Tipi di interazione. L'ordine è quello predefinito di esecuzione. (I «commenti» sono stati tolti nella 2.0.0: Vinted non li ha.) */
+export const OP_TYPES = ["like", "offer", "message"];
+export const OP_LABEL = { like: "Like", offer: "Offerta", message: "Messaggio privato" };
 
 /** Moduli con circuit breaker, feature flag e kill switch dedicati. */
 export const MODULES = {
@@ -37,7 +37,6 @@ export const MODULES = {
   like: "Like",
   offer: "Offerte",
   message: "Messaggi privati",
-  comment: "Suggerimenti commenti",
   notifCleaner: "Pulitore notifiche",
   overlay: "FAB e mini-widget",
   updates: "Aggiornamenti",
@@ -66,7 +65,7 @@ export const GLOSSARY = {
 
 /** Impostazioni predefinite. Ogni chiave nuova va aggiunta qui e in migrations.js se cambia forma. */
 export const DEFAULT_SETTINGS = {
-  schema: 3,
+  schema: 4,
   onboardingDone: false,
   theme: "dark",                    // dark | light
   layout: "full",                   // full | compact
@@ -74,7 +73,7 @@ export const DEFAULT_SETTINGS = {
   killSwitch: false,
   moduleKill: {},                   // { like: true } = modulo spento a mano
   features: {                       // feature flags
-    scanner: true, like: true, offer: true, message: true, comment: true, notifCleaner: true,
+    scanner: true, like: true, offer: true, message: true, notifCleaner: true,
     overlay: true, updates: true, discord: false, ai: false,
   },
   timers: {
@@ -82,25 +81,24 @@ export const DEFAULT_SETTINGS = {
     betweenItems: { min: 45, max: 120 },      // secondi, annunci diversi
     transitions: {                             // secondi, per coppia di tipi
       "like>offer": { min: 10, max: 25 },
-      "like>comment": { min: 10, max: 25 },
-      "comment>offer": { min: 10, max: 25 },
       "like>message": { min: 10, max: 25 },
-      "comment>message": { min: 10, max: 25 },
       "offer>message": { min: 10, max: 25 },
       "message>like": { min: 10, max: 25 },
-      "message>comment": { min: 10, max: 25 },
       "message>offer": { min: 10, max: 25 },
     },
     minFloor: 3,                               // nessun intervallo sotto questo valore
   },
   limits: {                         // soglie scelte dall'utente: NON sono limiti ufficiali di Vinted
-    perDay: { like: 60, comment: 20, offer: 15, message: 10 },
+    perDay: { like: 60, offer: 15, message: 10 },
     perAccountDay: 80,
     globalDay: 100,
   },
   openListingBeforeOp: true,        // naviga sulla pagina dell'annuncio prima dell'operazione
   backoffMinutes: [5, 15, 45],      // pause dopo 403/429; poi stop
-  maxConsecutiveFailures: 3,
+  maxConsecutiveFailures: 3,        // per tipo: 3 errori di fila sospendono SOLO quel tipo nella campagna
+  maxConsecutiveFailuresAll: 6,     // errori di fila di qualsiasi tipo: pausa dell'intera campagna
+  opRetry: { attempts: 3, delaysSec: [60, 300] },   // un'operazione non partita si riprova più tardi, senza bloccare le altre
+  campaignDefaults: { addPosition: "start" },        // «Posizione» predefinita quando si aggiungono annunci: In cima
   notifications: {
     enabled: true,
     system: true,                   // notifiche del sistema operativo
@@ -123,6 +121,7 @@ export const DEFAULT_SETTINGS = {
     templates: [],                  // [{ id, name, text }] modelli riutilizzabili
     recipients: [],                 // [{ id, label }] venditori a cui si può scrivere: nessun altro
     manualWaitSeconds: 240,         // attesa dell'invio manuale (modalità B)
+    focusTab: true,                 // scheda di Vinted in primo piano durante il messaggio (in background la chat può non caricarsi)
   },
 };
 

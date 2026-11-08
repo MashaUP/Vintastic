@@ -200,7 +200,9 @@
   // chat può aprirsi nella stessa pagina o in una pagina nuova.
 
   const ASK_INFO_LABEL = "Chiedi info";
-  const COMPOSER = 'textarea#composerInput';
+  // Verificato su vinted.it il 07/11/2026: <button data-testid="ask-seller-button"> con l'etichetta «Chiedi info».
+  const ASK_INFO_BUTTON = 'button[data-testid="ask-seller-button"]';
+  const COMPOSER = 'textarea#composerInput, textarea[data-testid="composer--input"]';
   const SEND_ICON = '[data-testid="arrow-right"]';
   const MSG = { session: null };
   const normText = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
@@ -217,9 +219,17 @@
     return icon?.closest("button") || null;
   }
 
+  /**
+   * Il pulsante interattivo di «Chiedi info» (non lo span dell'etichetta).
+   * 1. data-testid="ask-seller-button" (funziona in tutte le lingue);
+   * 2. altrimenti l'etichetta esatta «Chiedi info», risalendo al pulsante.
+   * undefined = nessuno dei due sulla pagina.
+   */
   function askInfoButton() {
+    const byId = document.querySelector(ASK_INFO_BUTTON);
+    if (byId) return byId;
     const label = [...document.querySelectorAll("span.web_ui__Button__label")].find((el) => normText(el.textContent) === ASK_INFO_LABEL);
-    return label ? (label.closest('button, a, [role="button"]') || null) : undefined;   // undefined = etichetta assente
+    return label ? (label.closest('button, a, [role="button"]') || null) : undefined;
   }
 
   /**
@@ -287,14 +297,18 @@
     if (self && seller === String(self)) return { outcome: "failed", sent: false, retryable: false, message: "È un tuo annuncio: non si può scrivere a se stessi" };
     if (page.status && page.status !== "active") return { outcome: "unavailable", sent: false, message: `Annuncio ${page.status}`, listing: { status: page.status } };
     const btn = askInfoButton();
-    if (btn === undefined) return { outcome: "changed", sent: false, message: "Pulsante «Chiedi info» non trovato sulla pagina: struttura di Vinted cambiata (o lingua diversa dall'italiano)", capability: { name: "askInfo", value: false, detail: "etichetta assente" } };
+    if (btn === undefined) return { outcome: "changed", sent: false, message: "Pulsante «Chiedi info» non trovato sulla pagina (né data-testid=\"ask-seller-button\" né l'etichetta): struttura di Vinted cambiata", capability: { name: "askInfo", value: false, detail: "pulsante assente" } };
     if (!btn || isDisabled(btn)) return { outcome: "failed", sent: false, retryable: false, message: "«Chiedi info» non disponibile per questo annuncio" };
     globalThis.VTGuard.safeClick(btn);   // clic protetto dal divieto di acquisto
     return { outcome: "opened", sent: false, capability: { name: "askInfo", value: true, detail: "pulsante trovato" } };
   };
 
   /** Fase 2: la chat è pronta? */
-  VT.msgComposer = () => ({ ready: Boolean(composer()), challenge: challengePresent(), loggedIn: loggedInFromDom(), path: location.pathname });
+  VT.msgComposer = () => ({
+    ready: Boolean(composer()), challenge: challengePresent(), loggedIn: loggedInFromDom(), path: location.pathname,
+    // Diagnostica (senza contenuti): scheda visibile, pulsante ancora presente, quanti campi di testo.
+    visible: document.visibilityState === "visible", askButton: Boolean(askInfoButton()), textareas: document.querySelectorAll("textarea").length,
+  });
 
   /** Fase 3: compila il campo; in modalità A preme Invia. */
   VT.msgFill = async ({ text, mode }) => {

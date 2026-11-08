@@ -3,6 +3,7 @@
  */
 
 import * as db from "./db.js";
+import { migrateCampaignV4, migrateItemV4, stripCommentSettings } from "../shared/migrations.js";
 import { redactMessages } from "../shared/messages.js";
 import { getSettings, replaceSettings, getState } from "./store.js";
 import { log } from "./logger.js";
@@ -46,7 +47,7 @@ export async function importData(json, parts) {
     if (sel.includes("settings") && v.data.settings) {
       const cur = await getSettings();
       // Segreti locali conservati: il file non li contiene.
-      const merged = deepMerge(cur, v.data.settings);
+      const merged = deepMerge(cur, stripCommentSettings(v.data.settings));   // file vecchi: niente chiavi dei commenti
       merged.discord = { ...merged.discord, webhookUrl: cur.discord?.webhookUrl || "" };
       merged.ai = { ...merged.ai, apiKey: cur.ai?.apiKey || "" };
       merged.killSwitch = cur.killSwitch;
@@ -69,8 +70,9 @@ export async function importData(json, parts) {
       for (const c of v.data.campaigns) {
         const { items, ...camp } = c;
         const id = existing.has(camp.id) ? `${camp.id}_imp${Date.now() % 10000}` : camp.id;
-        await db.put("campaigns", { ...camp, id, name: existing.has(camp.id) ? `${camp.name} (importata)` : camp.name });
-        await db.putMany("items", items.map((i) => ({ ...i, id: existing.has(camp.id) ? `${i.id}_imp` : i.id, campaignId: id })));
+        // Backup delle versioni 1.x: stesse regole della migrazione db_v4 (via i commenti, ciclo 1).
+        await db.put("campaigns", migrateCampaignV4({ ...camp, id, name: existing.has(camp.id) ? `${camp.name} (importata)` : camp.name }));
+        await db.putMany("items", items.map((i) => migrateItemV4({ ...i, id: existing.has(camp.id) ? `${i.id}_imp` : i.id, campaignId: id })));
         added++;
       }
       report.campaigns = `${added} importate come bozze`;
@@ -91,7 +93,7 @@ export async function importData(json, parts) {
       const cur = new Map((await db.getAll("ledger")).map((e) => [e.key, e]));
       let added = 0;
       for (const e of v.data.history) {
-        if (!e?.key) continue;
+        if (!e?.key || e.type === "comment") continue;
         const prev = cur.get(e.key);
         if (!prev || (prev.status !== "completed" && e.status === "completed")) { await db.put("ledger", e); added++; }
       }

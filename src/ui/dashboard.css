@@ -51,7 +51,7 @@ body { min-height: 100vh; }
 .stat .v { font-size: 30px; font-weight: 750; letter-spacing: -.02em; }
 .stat .d { font-size: 12px; color: var(--muted); }
 .stat.like .ic { background: rgba(217, 79, 140, .18); color: var(--s-like); }
-.stat.comment .ic { background: rgba(47, 155, 214, .18); color: var(--s-comment); }
+.stat.message .ic { background: rgba(20, 184, 166, .18); color: var(--s-message); }
 .stat.offer .ic { background: rgba(143, 110, 242, .2); color: var(--s-offer); }
 .stat.scan .ic { background: rgba(184, 135, 26, .2); color: var(--s-scan); }
 .stat.neutral .ic { background: var(--surface-3); color: var(--text-2); }
@@ -68,8 +68,13 @@ body { min-height: 100vh; }
 .feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 340px; overflow-y: auto; }
 .feed li { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: center; padding: 8px 6px; border-radius: 8px; }
 .feed li:hover { background: var(--surface-2); }
+/* Centro notifiche: la prima colonna contiene la pastiglia della gravità («Avviso», «Critico»),
+   non l'icona tonda da 26px del feed attività. Con 26px la pastiglia sbordava sul testo. */
+.feed.notes li { grid-template-columns: max-content minmax(0, 1fr) auto; align-items: start; }
+.feed.notes li > .pill { margin-top: 2px; }
+.feed.notes li > div:nth-child(2) { min-width: 0; overflow-wrap: anywhere; }
 .feed .fi { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-3); }
-.feed .fi.like { color: var(--s-like); } .feed .fi.offer { color: var(--s-offer); } .feed .fi.comment { color: var(--s-comment); } .feed .fi.message { color: var(--s-message); } .feed .fi.scan, .feed .fi.listing { color: var(--s-scan); }
+.feed .fi.like { color: var(--s-like); } .feed .fi.offer { color: var(--s-offer); } .feed .fi.message { color: var(--s-message); } .feed .fi.scan, .feed .fi.listing { color: var(--s-scan); }
 .sys-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }
 .sys-row:last-child { border-bottom: 0; }
 .seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); gap: 2px; flex-wrap: wrap; }

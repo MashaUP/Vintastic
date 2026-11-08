@@ -26,7 +26,7 @@ export async function render(ctx) {
       h("label", { class: "field" }, "Gravità", sel("level", { debug: "Debug", info: "Info", warn: "Avviso", error: "Errore", critical: "Critico" }, "Gravità")),
       h("label", { class: "field" }, "Categoria", sel("category", CATS, "Categoria")),
       h("label", { class: "field" }, "Campagna", sel("campaignId", Object.fromEntries(camps.map((c) => [c.id, c.name])), "Campagna")),
-      h("label", { class: "field" }, "Operazione", sel("opType", { like: "Like", offer: "Offerta", comment: "Commento", message: "Messaggio privato" }, "Operazione")),
+      h("label", { class: "field" }, "Operazione", sel("opType", { like: "Like", offer: "Offerta", message: "Messaggio privato" }, "Operazione")),
       h("span", { class: "grow" }),
       h("button", { class: "btn sm", onclick: () => downloadJson(logs, `vintastic-log-${Date.now()}.json`) }, icon("download", 14), "JSON"),
       h("button", { class: "btn sm", onclick: () => downloadText(["data;gravita;categoria;campagna;operazione;annuncio;messaggio;soluzione", ...logs.map((l) => [new Date(l.at).toISOString(), l.level, l.category, l.campaignId || "", l.opType || "", l.listingId || "", `"${(l.message || "").replace(/"/g, '""')}"`, `"${(l.solution || "").replace(/"/g, '""')}"`].join(";"))].join("\n"), `vintastic-log-${Date.now()}.csv`) }, icon("download", 14), "CSV"),

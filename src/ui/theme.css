@@ -23,7 +23,6 @@
   --info: #38bdf8;
   /* serie dei grafici (validate_palette.js: PASS su #17131f) */
   --s-like: #d94f8c;
-  --s-comment: #2f9bd6;
   --s-scan: #b8871a;
   --s-offer: #8f6ef2;
   --s-message: #14b8a6;
@@ -49,7 +48,6 @@
   --primary-2: #6a47e8;
   --primary-soft: rgba(106, 71, 232, .1);
   --s-like: #c23a76;
-  --s-comment: #1f7fb8;
   --s-scan: #8f6812;
   --s-offer: #6a47e8;
   --s-message: #0f8f80;

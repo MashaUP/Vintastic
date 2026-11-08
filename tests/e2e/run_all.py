@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import harness
 import scenarios as S
 import messages as M
+import cycles as Y
 
 ORDER = [
     ("installazione e interfaccia", S.t_install_and_ui),
@@ -38,6 +39,10 @@ ORDER = [
     ("messaggi: destinatari e casi di errore", M.t_msg_failures),
     ("messaggi: ritorno, invio lento, CAPTCHA", M.t_msg_captcha_return),
     ("messaggi: crash del worker e ripresa", M.t_msg_crash),
+    ("messaggi: chat rotta non blocca like e offerte", M.t_msg_isolation),
+    ("messaggi: chat in una scheda nuova", M.t_msg_newtab),
+    ("cicli: riprocessare annunci completati", Y.t_cycles),
+    ("interfaccia 2.0: Posizione, commenti, notifiche", Y.t_ui_v2),
 ]
 
 

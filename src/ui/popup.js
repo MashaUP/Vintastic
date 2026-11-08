@@ -64,7 +64,6 @@ function render() {
   if (tab === "quick") {
     pane = h("div", { class: "grid" }, h("div", { class: "tiles" },
       h("button", { class: "tile like", disabled: !onItem, onclick: () => quickAdd(["like"]) }, icon("heart"), "Metti like", h("small", {}, onItem ? "aggiunge alla coda" : "apri un annuncio")),
-      h("button", { class: "tile comment", disabled: !onItem, onclick: async () => { const l = await pageListing(); openDash(`#suggestions?listing=${l?.id || ""}`); } }, icon("message"), "Commenta", h("small", {}, "suggerimenti da copiare")),
       h("button", { class: "tile offer", disabled: !onItem, onclick: () => quickAdd(["offer"]) }, icon("tag"), "Fai offerta", h("small", {}, "con anteprima")),
       h("button", { class: "tile message", disabled: !onItem, onclick: () => quickAdd(["message"]) }, icon("send"), "Chiedi info", h("small", {}, "messaggio privato in coda")),
       h("button", { class: "tile scan", disabled: !onWardrobe, onclick: async () => { try { await rpc("scan.start", { url: activeTab.url }); toast("Scansione avviata", "", "success"); } catch (e) { toast("Non avviata", e.message, "error"); } } }, icon("search"), "Scansiona", h("small", {}, onWardrobe ? `armadio ${memberIdFrom(activeTab.url)}` : "apri un armadio"))),

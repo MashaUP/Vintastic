@@ -7,6 +7,7 @@
  * prezzi o operazioni, serve una nuova approvazione.
  */
 
+import { OP_LABEL } from "./constants.js";
 import { ledgerKey, canInteract } from "./ledger.js";
 import { checkLimit } from "./timers.js";
 import { OP_PENDING } from "./states.js";
@@ -21,7 +22,7 @@ export function snapshotEntries(items) {
     price: i.listing?.price ?? null,
     ops: i.ops.filter((o) => OP_PENDING.has(o.status)).map((o) => (o.type === "message"
       ? [o.type, null, null, o.text || null, o.mode || null]
-      : [o.type, o.amount ?? null, o.comment || null])),
+      : [o.type, o.amount ?? null, null])),   // terzo campo: era il testo del commento (formato invariato)
   })).filter((e) => e.ops.length);
 }
 
@@ -82,12 +83,17 @@ export function validateCampaign(ctx) {
   }
 
   const types = new Set(pendingOps.map((p) => p.op.type));
+  // Un modulo non disponibile blocca SOLO le sue operazioni: se ci sono altri tipi, la campagna parte
+  // e quelle operazioni aspettano. Errore solo se non resterebbe niente da fare.
+  const unavailable = [];
   for (const t of types) {
-    if (settings.moduleKill?.[t]) errors.push(`Il modulo ${t} è spento (kill switch del modulo).`);
-    if (settings.features && settings.features[t] === false) errors.push(`Il modulo ${t} è disattivato nelle funzionalità.`);
-    if (breakers[t]?.state === "open") errors.push(`Il modulo ${t} è sospeso dal circuit breaker: ${breakers[t].reason || "errori ripetuti"}.`);
+    const why = settings.moduleKill?.[t] ? "spento (kill switch del modulo)"
+      : settings.features && settings.features[t] === false ? "disattivato nelle funzionalità"
+        : breakers[t]?.state === "open" ? `sospeso dal circuit breaker: ${breakers[t].reason || "errori ripetuti"}` : null;
+    if (why) unavailable.push(`${OP_LABEL[t] || t}: ${why}`);
   }
-  if (types.has("comment")) warnings.push("Vinted non ha commenti pubblici sugli annunci: i commenti diventano suggerimenti da copiare, non vengono inviati.");
+  if (unavailable.length && unavailable.length === types.size) errors.push(`Nessun modulo disponibile per le operazioni in coda. ${unavailable.join(" · ")}.`);
+  else for (const u of unavailable) warnings.push(`${u}. Queste operazioni aspettano, le altre partono.`);
   if (types.has("message")) {
     const msgs = pendingOps.filter((p) => p.op.type === "message");
     const self = campaign?.accountId ? String(campaign.accountId).split("@")[0] : null;
@@ -107,7 +113,6 @@ export function validateCampaign(ctx) {
   let dupes = 0;
   let verify = 0;
   for (const { item, op } of pendingOps) {
-    if (op.type === "comment") continue;
     const entry = ledger.get(ledgerKey(campaign?.accountId, item.listingId, op.type));
     const d = canInteract(entry);
     if (!d.allowed) { if (d.code === "verify" || d.code === "running") verify++; else dupes++; }
@@ -119,7 +124,6 @@ export function validateCampaign(ctx) {
 
   if (!campaign?.dryRun && counters) {
     for (const t of types) {
-      if (t === "comment") continue;
       const lim = checkLimit(counters, campaign?.accountId, t, settings.limits);
       const need = pendingOps.filter((p) => p.op.type === t).length;
       if (!lim.allowed) errors.push(lim.reason);

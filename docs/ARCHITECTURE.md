@@ -49,13 +49,32 @@ Vintastic è un'estensione **Manifest V3** in JavaScript puro (moduli ES), senza
 
 ## Flusso di un'operazione
 
-1. `tick()` sceglie la campagna con `nextAt` più vicino e la prossima operazione (`queue.nextOp`).
+1. `tick()` sceglie la campagna con `nextAt` più vicino e la prossima operazione **eseguibile adesso** (`queue.nextOp`): salta quelle con un nuovo tentativo programmato (`retryAfter`) e quelle dei tipi bloccati (`blockedTypes`: sospesi nella campagna o modulo non disponibile), anche sullo stesso annuncio.
 2. Controlli senza toccare Vinted: annuncio attivo, modulo disponibile (feature flag, kill switch, circuit breaker), **ledger** (No Repeat), conferma richiesta, soglie, importo dell'offerta.
 3. Simulazione → completata con `simulated: true`, nessuna richiesta.
 4. Reale → sessione e account corrispondenti, altrimenti autenticazione assistita.
 5. `claimOp` (atomico) → ledger `running` → journal `intent` → scheda sulla pagina dell'annuncio → pagina pronta (CAPTCHA? login?) → journal `sending` → `vt:exec` (per i messaggi le fasi descritte più sotto).
-6. Esito classificato: `done/already` → completata; `priceChanged` → pausa per nuova approvazione; `blocked/captcha` → pausa di tutto con backoff; `auth` → autenticazione assistita; `failed` → fallita (ripetibile se l'esito è certo); `changed/unsupported` → circuit breaker del modulo; `uncertain` → da verificare.
-7. Timer successivo da `timers.delayBefore` (transizione, per tipo, tra annunci, minimo assoluto).
+6. Esito classificato: `done/already` → completata; `priceChanged` → pausa per nuova approvazione; `blocked/captcha` → pausa di tutto con backoff; `auth` → autenticazione assistita; `failed` → fallita (ripetibile se l'esito è certo); `changed/unsupported` → circuit breaker del modulo (solo quel modulo si ferma); `uncertain` → da verificare.
+7. Timer successivo da `timers.delayBefore` (transizione, per tipo, tra annunci, minimo assoluto). Se non c'è niente di eseguibile ma restano operazioni: si aspetta il primo `retryAfter`; se restano solo tipi bloccati → pausa con la spiegazione (`waitOrPause`).
+
+## Errori e pause (2.0.0)
+
+Fino alla 1.4.0 un'operazione non partita tornava «in attesa» in testa alla coda: `nextOp` la riprendeva subito e un solo contatore di errori metteva in pausa l'intera campagna dopo 3 tentativi. Un messaggio che non apriva la chat bloccava like e offerte di tutti gli annunci successivi. Ora:
+
+| Evento | Effetto |
+|---|---|
+| Operazione non partita per un motivo suo (pagina, chat, scheda) | `retryAfter` dopo 60 s e poi 300 s (`opRetry`); dopo 3 tentativi «fallita», ripetibile. Intanto si eseguono le altre |
+| 3 errori di fila dello stesso tipo (`maxConsecutiveFailures`) | `campaign.suspended[tipo]`: solo quel tipo si ferma nella campagna, notifica; gli altri continuano. Riprendere azzera |
+| 6 errori di fila di tipi diversi (`maxConsecutiveFailuresAll`) | pausa `errors` della campagna (probabile problema generale) |
+| Modulo isolato dal circuit breaker | le sue operazioni aspettano, le altre partono; il validatore blocca solo se non resterebbe niente |
+| CAPTCHA, 403/429, sessione | come prima: pausa di tutto (riguardano l'account, non l'operazione) |
+| Invio manuale (B) non arrivato | messaggi sospesi nella campagna (`kind: "manual"`) |
+
+## Cicli (2.0.0)
+
+Riprocessare gli annunci già elaborati senza nuove campagne. `queue.refreshPlan` decide cosa si ripete: operazioni completate o saltate perché già fatte (`result.ledger === "done"`); mai `verify`, `running`, in coda o fallite. `engine.startNewCycle` richiede `confirm: true`, sposta le operazioni ripetute in `item.pastCycles` (data, esito, importo, errori restano), crea quelle nuove con `cycle`, `cycleId` e `newCycle: true`, azzera lo snapshot (anteprima da riapprovare) e annota il ciclo nella campagna (`cycle`, `cycles`). Il ciclo corrente si riusa se non è ancora partito niente.
+
+Il ledger registra `cycleKey = campagna#ciclo` con ogni stato e lo conserva nello storico. `canInteract(entry, { cycleKey, newCycle })`: completata nello stesso ciclo → bloccata (`sameCycle`); completata altrove senza nuovo ciclo → bloccata (`done`, duplicato accidentale); nuovo ciclo voluto → ammessa (`newCycle`); `running`/`verify` → sempre bloccata.
 
 ## Messaggi privati
 
@@ -63,11 +82,11 @@ Logica pura in `src/shared/messages.js`, fasi in `engine.runMessage` e `adapter.
 
 1. **Anteprima** (`fillMessageOps`): per ogni messaggio in attesa si controlla il destinatario (elenco di Impostazioni › Messaggi; un venditore estraneo → saltato, nessuna chat) e si calcolano testo e modalità dalla configurazione della campagna (`opsDefaults.message`: predefinito, modello, scritto ora, rotazione, casuale, suggerimento; segnaposto). Testo e modalità entrano nello snapshot: si invia ciò che è stato approvato. I testi scritti a mano per un annuncio (`textLocked`) restano.
 2. **Prima di toccare Vinted**: destinatario e testo ricontrollati (anche in simulazione, che non apre chat), ledger, soglia giornaliera.
-3. `vt:msgOpen` sulla pagina dell'annuncio: venditore della pagina = venditore dell'anteprima e autorizzato, annuncio attivo, clic su «Chiedi info». Nessun messaggio ancora.
-4. Il motore aspetta `#composerInput` fino a 30 s chiedendo `vt:msgComposer` (la chat può aprirsi nella stessa pagina o in una nuova).
+3. `vt:msgOpen` sulla pagina dell'annuncio: venditore della pagina = venditore dell'anteprima e autorizzato, annuncio attivo, clic su «Chiedi info» (`button[data-testid="ask-seller-button"]`, altrimenti l'etichetta esatta risalendo al pulsante). Nessun messaggio ancora.
+4. `engine.waitChat` aspetta la chat guardando lo stato reale: indirizzo e caricamento della scheda, schede nuove aperte dal clic (`openerTabId`), presenza di Vintastic (`vt:msgComposer`; se manca su una pagina caricata viene reinserito con `chrome.scripting`), campo `#composerInput`. Il limite (25 s senza cambiamenti, 60 s al massimo) riparte finché la pagina naviga. Su vinted.it il clic porta, con un caricamento completo, a `/inbox/<uuid>?referrer=…`. Se la chat non arriva, `messages.chatDiagnosis` spiega quale caso si è verificato. Per i messaggi la scheda di lavoro va in primo piano (`messages.focusTab`).
 5. Journal `sending` (punto di non ritorno), poi `vt:msgFill`: testo nel campo; in A clic su Invia, in B scheda in primo piano e notifica.
 6. `vt:msgStatus` ogni secondo (45 s in A, fino a 4 minuti in B): confermato solo se il campo è vuoto **e** compare un messaggio nuovo con quel testo (conteggio rispetto a prima dell'invio). Il clic dell'utente e il tasto Invio si registrano in fase di cattura, con il testo effettivo.
-7. Esito: confermato → completato, poi ritorno all'annuncio (se non riesce: avviso, il messaggio resta completato). Tentato ma non confermato, CAPTCHA dopo il clic, pagina persa → **da verificare**, mai ripetuto. In B senza invio e con il testo ancora nel campo → fallito ripetibile e pausa `manual`.
+7. Esito: confermato → completato, poi ritorno all'annuncio (se non riesce: avviso, il messaggio resta completato). Tentato ma non confermato, CAPTCHA dopo il clic, pagina persa → **da verificare**, mai ripetuto. In B senza invio e con il testo ancora nel campo → fallito ripetibile e messaggi sospesi nella campagna.
 
 Il contenuto dei messaggi non va in log, journal, ledger o Support Bundle (`redactMessages`).
 
@@ -77,7 +96,7 @@ Operazione: `prepared → waiting → running → completed | failed | verify | 
 
 ## Degradazione controllata
 
-Ogni modulo (scanner, like, offerte, messaggi, commenti, pulitore, overlay, aggiornamenti, Discord, AI) ha feature flag, kill switch e circuit breaker. Una risposta di Vinted in un formato inatteso apre il breaker di **quel** modulo (`hard`), lo registra con la spiegazione e lascia funzionare il resto (testato: offerte isolate, scanner attivo). Gli errori temporanei aprono il breaker dopo 3 di fila e lo richiudono in prova dopo 30 minuti.
+Ogni modulo (scanner, like, offerte, messaggi, pulitore, overlay, aggiornamenti, Discord, AI) ha feature flag, kill switch e circuit breaker. Una risposta di Vinted in un formato inatteso apre il breaker di **quel** modulo (`hard`), lo registra con la spiegazione e lascia funzionare il resto (testato: offerte isolate, scanner attivo). Gli errori temporanei aprono il breaker dopo 3 di fila e lo richiudono in prova dopo 30 minuti.
 
 ## Side panel, overlay, popup
 

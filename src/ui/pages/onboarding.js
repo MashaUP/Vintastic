@@ -121,7 +121,7 @@ export function startOnboarding(ctx, force = false) {
       const upd = () => { st.offerPct = Number(pct.value) || 15; const r = computeOffer(20, { mode: "saving", rule: { kind: "percentOff", value: st.offerPct } }); ex.textContent = `Esempio: annuncio a 20 € → offerta ${r.ok ? fmtEuro(r.amount) : "—"}`; };
       pct.addEventListener("input", upd);
       upd();
-      body.replaceChildren(h("p", {}, "Quali operazioni? Si possono combinare. I commenti si aggiungono dopo: Vinted non ha commenti pubblici, quindi diventano suggerimenti da copiare."),
+      body.replaceChildren(h("p", {}, "Quali operazioni? Si possono combinare. I messaggi privati si aggiungono dopo, quando hai scelto i destinatari autorizzati."),
         h("div", { class: "row" }, boxes), h("div", { class: "row" }, h("span", {}, "Sconto dell'offerta (%)"), pct, ex),
         h("p", { class: "small muted" }, "Regole avanzate (fasce, arrotondamenti, importi casuali) in Smart Offer."));
       nav(true, "Avanti", () => { if (!st.types.size) { toast("Scegli almeno un'operazione", "", "warning"); return false; } return true; });

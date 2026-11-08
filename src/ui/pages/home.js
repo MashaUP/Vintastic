@@ -17,7 +17,7 @@ let range = "7d";
 let activityList = null;
 let timerNodes = [];
 
-const ACT_ICON = { like: "heart", offer: "tag", message: "send", comment: "message", scan: "scan", listing: "list", campaign: "zap", queue: "layers", notif: "bell", system: "settings" };
+const ACT_ICON = { like: "heart", offer: "tag", message: "send", suggestion: "sparkles", scan: "scan", listing: "list", campaign: "zap", queue: "layers", notif: "bell", system: "settings" };
 
 function feedItem(a) {
   return h("li", {}, h("span", { class: `fi ${a.kind}` }, icon(ACT_ICON[a.kind] || "pulse", 14)), h("span", { class: "small" }, a.text, a.simulated ? h("span", { class: "pill", style: { marginLeft: "6px" } }, "sim.") : null), h("span", { class: "muted small" }, ago(a.at)));
@@ -51,7 +51,7 @@ export async function render(ctx) {
       h("div", { class: "stats" },
         statCard("scan", "search", "Annunci analizzati", t.listings, `${fmtNum(t.listingsAll)} in archivio · ${t.scans} scansioni`),
         statCard("like", "heart", "Like effettuati", t.likes),
-        statCard("comment", "message", "Commenti suggeriti", t.comments, "Vinted non ha commenti pubblici: si copiano"),
+        statCard("message", "send", "Messaggi privati", t.messages),
         statCard("offer", "tag", "Offerte inviate", t.offers),
         statCard("neutral", "user", "Account attivi", t.accounts),
         statCard("neutral", "zap", "Campagne", t.campaignsRunning, `${t.campaignsDone} completate nel periodo`),
@@ -82,7 +82,7 @@ export async function render(ctx) {
       h("div", { class: "panel-head" }, h("h2", {}, icon("chart"), "Andamento attività"), h("span", { class: "grow" })),
       lineChart(st.days, [
         { name: "Like", color: "var(--s-like)", values: st.days.map((d) => st.series.like[d] || 0) },
-        { name: "Commenti", color: "var(--s-comment)", values: st.days.map((d) => st.series.comment[d] || 0) },
+        { name: "Messaggi", color: "var(--s-message)", values: st.days.map((d) => st.series.message[d] || 0) },
         { name: "Offerte", color: "var(--s-offer)", values: st.days.map((d) => st.series.offer[d] || 0) },
       ])),
     system: () => {

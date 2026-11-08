@@ -41,7 +41,7 @@ class FakeVinted:
         self.min_offer_ratio = None     # es. 0.9: offerte sotto il 90% del prezzo rifiutate
         # Chat «Chiedi info» con l'HTML reale fornito (textarea#composerInput, [data-testid="arrow-right"]).
         self.chat = {
-            "nav": "full",          # full: la chat è una pagina nuova (/inbox/…) · spa: si apre nella stessa pagina
+            "nav": "full",          # full: pagina nuova /inbox/<uuid>?referrer=… (come vinted.it il 07/11/2026) · spa: stessa pagina · newtab: scheda nuova
             "open_delay": 0,        # secondi prima che compaia il campo del messaggio
             "ask_info": "on",       # on · off (pulsante assente) · disabled
             "composer": True,       # False: chat senza #composerInput
@@ -111,9 +111,13 @@ class FakeVinted:
         if self.chat["ask_info"] == "off":
             return ""
         dis = " disabled" if self.chat["ask_info"] == "disabled" else ""
-        go = (f"location.href = '/inbox/{70000 + iid % 10000}?item={iid}';" if self.chat["nav"] == "full" else
-              f"history.pushState({{}}, '', '/inbox/{70000 + iid % 10000}'); setTimeout(() => renderChat(document.querySelector('main')), {int(self.chat['open_delay'] * 1000)});")
-        return (f'<button type="button" class="web_ui__Button"{dis} id="ask-info"><span class="web_ui__Button__content"><span class="web_ui__Button__label">Chiedi info</span></span></button>'
+        conv = f"01a1b30b-910b-71b4-9955-{iid:012d}"
+        url = f"/inbox/{conv}?referrer=%2Fitems%2F{iid}-articolo"
+        go = {"full": f"location.href = '{url}';",
+              "newtab": f"window.open('{url}', '_blank');",
+              "spa": f"history.pushState({{}}, '', '/inbox/{conv}'); setTimeout(() => renderChat(document.querySelector('main')), {int(self.chat['open_delay'] * 1000)});"}[self.chat["nav"]]
+        # Struttura copiata da vinted.it (07/11/2026): <button data-testid="ask-seller-button"> con l'etichetta «Chiedi info».
+        return (f'<button type="button" class="web_ui__Button__button web_ui__Button__outlined web_ui__Button__default web_ui__Button__primary web_ui__Button__truncated" data-testid="ask-seller-button"{dis} id="ask-info"><span class="web_ui__Button__content"><span class="web_ui__Button__label">Chiedi info</span></span></button>'
                 + self.chat_script(iid) + f"<script>document.getElementById('ask-info').addEventListener('click', () => {{ {go} }});</script>")
 
     def inbox_page(self, iid):
@@ -207,7 +211,7 @@ class FakeVinted:
             else:
                 self.messages.append((int(body["item"]), body["text"]))
             return await route.fulfill(status=200, content_type="application/json", body="{}")
-        m = re.match(r"^/inbox/\d+\?item=(\d+)", path_q)
+        m = re.match(r"^/inbox/[0-9a-f-]+\?referrer=%2Fitems%2F(\d+)", path_q)
         if m:
             if self.chat["open_delay"]:
                 import asyncio
