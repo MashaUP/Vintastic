@@ -43,25 +43,31 @@ export async function render(ctx) {
           h("td", {}, h("label", { class: "check" }, h("input", { type: "checkbox", checked: Boolean(s.moduleKill?.[m]), onchange: async (e) => { await rpc("health.moduleKill", { module: m, on: e.target.checked }); ctx.settings = await rpc("settings.get"); } }), "Spento")));
       }))));
 
-  const rel = upd?.release;
+  const disk = upd?.disk;
+  const install = () => confirmBox("Ricaricare Vintastic?", "Prima estrai lo zip SOPRA la cartella di Vintastic, sostituendo i file. Poi conferma: l'estensione si ricarica e le campagne in corso vanno in pausa (si recuperano).", "Ho estratto i file, ricarica").then((ok) => ok && rpc("updates.install"));
   const updCard = h("div", { class: "card" },
     h("div", { class: "panel-head" }, h("h2", {}, icon("refresh"), "Aggiornamenti"), h("span", { class: "grow" }),
       h("button", { class: "btn primary", onclick: async () => { const r = await rpc("updates.check"); toast(r.ok ? (r.available ? `Disponibile la ${r.latest}` : "Sei all'ultima versione") : "Controllo non riuscito", r.error || "", r.ok ? "success" : "warning"); ctx.refresh(); } }, icon("refresh", 16), "Cerca aggiornamento")),
-    h("dl", { class: "kv" }, h("dt", {}, "Installata"), h("dd", {}, `v${VERSION}`), h("dt", {}, "Ultima su GitHub"), h("dd", {}, upd?.latest ? `v${upd.latest}${upd.available ? " · nuova!" : ""}` : upd?.error || "non controllata"),
+    h("dl", { class: "kv" }, h("dt", {}, "Installata"), h("dd", {}, `v${VERSION}`), h("dt", {}, "Ultima su GitHub"), h("dd", {}, upd?.latest ? `v${upd.latest}${upd.available ? " · nuova!" : ""}${upd.date ? ` · ${upd.date}` : ""}` : upd?.error || "non controllata"),
       h("dt", {}, "Ultimo controllo"), h("dd", {}, fmtDate(upd?.checkedAt))),
-    rel ? h("div", { style: { marginTop: "12px" } }, h("h3", {}, rel.name), h("pre", { class: "mono", style: { whiteSpace: "pre-wrap", maxHeight: "220px", overflow: "auto", background: "var(--bg-2)", padding: "10px", borderRadius: "10px" } }, rel.notes || "Nessuna nota."),
-      h("div", { class: "row" }, rel.url ? h("a", { class: "btn", href: rel.url, target: "_blank", rel: "noopener" }, icon("external", 14), "Pagina della release") : null,
-        upd.available && rel.zip ? h("button", { class: "btn primary", onclick: async (e) => {
+    // Cartella già sovrascritta con un'altra versione ma estensione non ricaricata.
+    disk?.pending ? h("div", { class: "callout warn row", style: { marginTop: "10px" } }, h("div", { class: "grow" }, `Nella cartella c'è già la v${disk.disk}, ma è in uso la v${disk.loaded}: premi «Installa» per ricaricare.`),
+      h("button", { class: "btn primary sm", onclick: install }, icon("play", 14), "Installa")) : null,
+    upd?.available ? h("div", { style: { marginTop: "12px" } }, h("h3", {}, `Novità della v${upd.latest}`),
+      upd.notes?.length ? h("ul", { class: "small" }, upd.notes.map((n) => h("li", {}, n))) : h("p", { class: "muted small" }, "Nessuna nota."),
+      h("div", { class: "row" },
+        h("a", { class: "btn", href: `https://github.com/${upd.repo}/blob/main/CHANGELOG.md`, target: "_blank", rel: "noopener" }, icon("external", 14), "Novità complete"),
+        upd.zip ? h("button", { class: "btn primary", onclick: async (e) => {
           e.target.disabled = true;
-          try { const r = await rpc("updates.download"); toast("Zip scaricato", `${r.name} in Download/Vintastic · SHA-256 ${r.verified ? "verificato" : "non disponibile per il confronto"}`, "success", 9000); }
+          try { const r = await rpc("updates.download"); toast("Zip scaricato", `${r.name} in Download/Vintastic · SHA-256 ${r.verified ? "verificato" : "non dichiarato in version.json"}`, "success", 9000); }
           catch (err) { toast("Download non riuscito", err.message, "error", 9000); }
           e.target.disabled = false;
-        } }, icon("download", 14), "Scarica e verifica") : null,
-        upd.available ? h("button", { class: "btn", onclick: async () => { if (await confirmBox("Installare l'aggiornamento?", "Prima estrai lo zip SOPRA la cartella di Vintastic, sostituendo i file. Poi conferma: l'estensione si ricarica.", "Ho estratto i file, ricarica")) rpc("updates.install"); } }, icon("play", 14), "Installa") : null)) : null,
+        } }, icon("download", 14), "Scarica e verifica") : h("span", { class: "muted small" }, "version.json non indica lo zip: scaricalo da GitHub."),
+        disk?.pending ? null : h("button", { class: "btn", onclick: install }, icon("play", 14), "Installa"))) : null,
     h("details", { style: { marginTop: "10px" } }, h("summary", {}, "Come funziona l'aggiornamento"),
       h("ol", { class: "small" },
-        h("li", {}, h("b", {}, "Verifica: "), "legge l'ultima release pubblica su GitHub (API senza credenziali, con gestione del rate limit)."),
-        h("li", {}, h("b", {}, "Download: "), "scarica lo zip, ne calcola lo SHA-256 e lo confronta con il file .sha256 della release. Se non coincide non viene salvato."),
+        h("li", {}, h("b", {}, "Verifica: "), "legge version.json dal repository su GitHub (senza credenziali, al massimo una volta al minuto)."),
+        h("li", {}, h("b", {}, "Download: "), "scarica lo zip dalla radice del repository, ne calcola lo SHA-256 e lo confronta con quello di version.json. Se non coincide non viene salvato. Il file si chiama Vintastic-x.y.z.zip, in Download/Vintastic."),
         h("li", {}, h("b", {}, "Installazione: "), "estrai lo zip sopra la cartella dell'estensione, poi «Installa» ricarica Vintastic. Le campagne in corso vanno in pausa e si recuperano."),
         h("li", {}, h("b", {}, "Aggiornamento automatico: "), "non possibile per un'estensione caricata da cartella: il browser non permette a un'estensione di sostituire i propri file."))));
 

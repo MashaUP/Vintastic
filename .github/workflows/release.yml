@@ -1,7 +1,8 @@
 name: Release
 
 # Pubblichi una release su GitHub (titolo, descrizione, tag vX.Y.Z) e il resto è automatico:
-# test, pacchetto ZIP, SHA-256, allegati alla release, artifact, notifica Discord facoltativa.
+# test, allegato dello zip della radice (lo stesso di version.json, così «Cerca aggiornamento» e la
+# release danno lo stesso file) con il suo SHA-256, artifact, notifica Discord facoltativa.
 on:
   release:
     types: [published]
@@ -40,11 +41,16 @@ jobs:
         run: |
           echo "$RELEASE_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::Il tag deve essere vX.Y.Z (ricevuto $RELEASE_TAG)"; exit 1; }
 
-      - name: Controlli e test (versioni, sintassi, divieto di acquisto, segreti)
+      - name: Controlli, ESLint e test (versioni, zip e version.json, sintassi, divieto di acquisto, segreti)
         run: npm test
 
-      - name: Pacchetto ZIP + SHA-256
-        run: npm run build
+      - name: Pacchetto ZIP + SHA-256 (lo zip già nella radice, verificato da npm test contro version.json)
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          mkdir -p dist
+          cp "Vintastic-${VERSION}.zip" dist/
+          (cd dist && sha256sum "Vintastic-${VERSION}.zip" > "Vintastic-${VERSION}.zip.sha256")
+          test "$(cut -d' ' -f1 dist/Vintastic-${VERSION}.zip.sha256)" = "$(jq -r .sha256 version.json)" || { echo "::error::Lo zip nella radice non corrisponde a version.json"; exit 1; }
 
       - name: Allega ZIP e checksum alla release
         env:

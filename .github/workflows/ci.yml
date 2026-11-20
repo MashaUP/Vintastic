@@ -19,7 +19,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - name: Controlli e test unitari
+      - name: Controlli, ESLint e test unitari
         run: npm test
       - name: Pacchetto di prova
         run: npm run build

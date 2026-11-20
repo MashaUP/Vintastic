@@ -1,11 +1,12 @@
 {
-  "version": "2.2.0",
-  "date": "2026-11-08",
-  "zip": "Vintastic-2.2.0.zip",
+  "version": "2.2.1",
+  "date": "2026-11-20",
+  "zip": "Vintastic-2.2.1.zip",
+  "sha256": "f6305b7927a224a6ea0555a40995b5200e5c83ed024520bd83b5d8a7769ab461",
   "notes": [
-    "«Azzera storico»: togli like, offerte, messaggi (o un mix) dallo storico, dalla campagna o dagli Annunci, così le campagne li rifanno",
-    "Like già presente su Vinted: tolto e rimesso (si può scegliere «Lascialo» per campagna)",
-    "Filtri degli Annunci applicati subito, anche mentre scrivi",
-    "Nuova campagna: le sezioni che apri si mostrano da sole"
+    "«Cerca aggiornamento» legge version.json dal repository: trova la nuova versione anche prima che la release sia pubblicata",
+    "Lo zip scaricato si chiama Vintastic-x.y.z.zip ed è verificato con lo SHA-256 di version.json",
+    "Salute dice se la cartella è già aggiornata ma Vintastic non è stato ricaricato",
+    "Controlli del codice con ESLint a ogni test"
   ]
 }

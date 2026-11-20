@@ -4,7 +4,7 @@
  */
 
 export const APP_NAME = "Vintastic";
-export const VERSION = "2.2.0";
+export const VERSION = "2.2.1";
 export const REPO = "MashaUP/Vintastic";
 export const DB_NAME = "vintastic";
 export const DB_VERSION = 5;            // vedi migrations.js
@@ -132,5 +132,5 @@ export const DEFAULT_LINKS = {
   kofi: { url: "https://ko-fi.com/mashaup", label: "Ko-fi" },
   documentation: { url: `https://github.com/${REPO}#readme`, label: "Guida" },
   changelog: { url: `https://github.com/${REPO}/blob/main/CHANGELOG.md`, label: "Novità" },
-  bugReport: { url: `https://github.com/${REPO}/issues/new`, label: "Segnala un problema" },
+  bugs: { url: `https://github.com/${REPO}/issues/new?template=segnalazione-bug.yml`, label: "Segnala un problema" },
 };

@@ -76,6 +76,10 @@ Riprocessare gli annunci già elaborati senza nuove campagne. `queue.refreshPlan
 
 Il ledger registra `cycleKey = campagna#ciclo` con ogni stato e lo conserva nello storico. `canInteract(entry, { cycleKey, newCycle })`: completata nello stesso ciclo → bloccata (`sameCycle`); completata altrove senza nuovo ciclo → bloccata (`done`, duplicato accidentale); nuovo ciclo voluto → ammessa (`newCycle`); `running`/`verify` → sempre bloccata.
 
+## Aggiornamenti e link (2.2.1)
+
+`src/background/updates.js` segue il flusso comune (standard comuni, sezione 3, come Vintory): `check` legge `https://raw.githubusercontent.com/<repo>/main/version.json` (`credentials: "omit"`, `cache: "no-store"`, al massimo una volta al minuto) e lo interpreta con `shared/version.js` `parseVersionFile` (semver, nome `Vintastic-x.y.z.zip`, SHA-256 di 64 caratteri, al massimo 12 note). `downloadVerified` scarica `https://github.com/<repo>/raw/HEAD/<zip>` in memoria, confronta lo SHA-256 e solo se coincide lo salva con `chrome.downloads.download` dallo stesso indirizzo (`filename: Vintastic/<zip>`). `diskVersion` confronta il `manifest.json` sul disco con quello in uso. `links.json` passa da `shared/links.js` `normalizeLinks` (`bugReport` → `bugs`).
+
 ## Azzerare lo storico e like rimesso (2.2.0)
 
 `engine.clearHistory({ listingIds, types, campaignId })` (RPC `ledger.clear`): toglie dal `ledger` le voci dei tipi scelti per quegli annunci, tranne `running` e `verify`; poi `queue.resetLedgerSkipped` rimette `waiting` le operazioni `skipped` con `result.ledger` `done`/`sameCycle` nelle campagne aperte (e in quella da cui si azzera, anche se completata). Interfaccia in `src/ui/history-dialog.js`.

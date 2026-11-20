@@ -40,6 +40,6 @@ export async function render(ctx) {
       h("a", { class: "btn", href: links.discord?.url, target: "_blank", rel: "noopener" }, icon("discord", 16), "Discord"),
       h("a", { class: "btn", href: links.kofi?.url, target: "_blank", rel: "noopener" }, icon("coffee", 16), "Supporta su Ko-fi"),
       h("a", { class: "btn", href: links.github?.url, target: "_blank", rel: "noopener" }, icon("github", 16), "GitHub"),
-      h("a", { class: "btn", href: links.bugReport?.url || `${links.github?.url}/issues/new`, target: "_blank", rel: "noopener" }, icon("file", 16), "Segnala un problema")),
+      h("a", { class: "btn", href: links.bugs?.url || links.bugReport?.url || `${links.github?.url}/issues/new`, target: "_blank", rel: "noopener" }, icon("file", 16), "Segnala un problema")),
       h("p", { class: "small muted" }, "Quando segnali un problema allega il Support Bundle (Log › Support Bundle): non contiene cookie, token, password né webhook.")));
 }

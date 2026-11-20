@@ -15,6 +15,18 @@ actionlint .github/workflows/*.yml
 - `tests/unit/`: logica pura di `src/shared/` e migrazioni IndexedDB.
 - `tests/e2e/`: `fake_vinted.py` (Vinted finto), `harness.py` (avvio di Chrome con l'estensione), `scenarios.py` (funzioni generali), `messages.py` (messaggi privati), `cycles.py` (cicli, interfaccia 2.0, menu Venditore), `run_all.py` (esecuzione e rapporto in `tests/e2e/artifacts/report.json`). Ogni scenario parte da un profilo pulito e controlla che nessuna richiesta d'acquisto sia partita e che le pagine non abbiano errori JavaScript.
 
+## Risultati 2.2.1
+
+| Suite | Superati | Falliti | Note |
+|---|---|---|---|
+| `npm test` (controlli + ESLint + unitari) | controlli ✔, ESLint 0 avvisi, 93/93 test | 0 | nuovi: `parseVersionFile` (dati non attendibili, 12 note da 300 caratteri, impronta e nome dello zip vincolati), `bugReport` → `bugs` |
+| `npm run check` sui casi sbagliati | 3/3 bloccati | — | due zip nella radice, chiave `bugReport` in `links.json`, `sha256` diverso dallo zip |
+| `actionlint` | ✔ | — | `ci.yml`, `release.yml`; il passo «Pacchetto» della release provato in locale con `RELEASE_TAG=v2.2.1` |
+| `npm run test:e2e` | 35/35 | 0 | «aggiornamenti GitHub» riscritto: clic su «Cerca aggiornamento» e «Scarica e verifica» nella pagina Salute. **Fallisce sulla 2.2.0** (legge `releases/latest`), passa sulla 2.2.1 |
+| `npm run package` | ✔ | — | `Vintastic-2.2.1.zip` (89 file) con impronta in `version.json`; `Vintastic_GitHub.zip` estratto in una cartella pulita, `npm ci && npm test` superato |
+
+**Non provato sul vero**: il download da `https://github.com/MashaUP/Vintastic/raw/HEAD/<zip>` dal service worker (nel test GitHub è simulato; stesso indirizzo usato da Vintory e Vinted_Relist). Edge e Brave non provati.
+
 ## Risultati 2.2.0
 
 | Suite | Superati | Falliti | Note |
@@ -115,7 +127,7 @@ Lo scenario nuovo verifica: «Azzera storico…» dalla campagna con il pulsante
 | 32 | Recupero dopo crash | ✔ | worker terminato (CDP) in fase di invio → «da verificare», non ripetuta; browser chiuso in preparazione → rimessa in coda |
 | 33 | Migrazioni database | ✔ | unit (v1→v2→v3, rollback) + installazione pulita in Chrome |
 | 34 | Import/export | ✔ | esportazione senza segreti, importazione in un profilo nuovo, bozze, deduplica, file estraneo rifiutato |
-| 35 | Aggiornamenti | ✔ | GitHub finto: nuova versione, notifica, SHA-256 verificato, checksum errato rifiutato, rate limit |
+| 35 | Aggiornamenti | ✔ | dalla pagina Salute: `version.json` da raw, note, notifica, `links.json` riletto (`bugReport` → `bugs`), zip da `github.com/raw/HEAD` con SHA-256 verificato e salvato dall'indirizzo vero, impronta sbagliata = nessun file, 404 e 429 spiegati, cartella già aggiornata rilevata (2.2.1) |
 | 36 | GitHub Actions | ◐ | `actionlint` OK (ha trovato e fatto correggere un errore YAML); ogni passo provato in locale; **non eseguito su GitHub** (il repository non esiste ancora) |
 | 37 | Generazione ZIP | ✔ | 85 file, solo l'estensione, controllo di file obbligatori ed esclusi |
 | 38 | Checksum | ✔ | `.sha256` generato e riletto dal version checker |

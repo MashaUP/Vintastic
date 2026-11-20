@@ -42,7 +42,7 @@
 | `tabs` | scheda di lavoro di Vintastic, azioni rapide sull'annuncio aperto |
 | `cookies` | leggere **solo** il cookie `v_uid` (id utente) |
 | `webRequest` | osservare (senza modificare) le intestazioni CSRF/anon-id delle richieste di Vinted |
-| `downloads` | salvare lo zip di un aggiornamento verificato |
+| `downloads` | salvare lo zip di un aggiornamento, solo dopo averne verificato lo SHA-256 con `version.json` |
 | `sidePanel` | pannello laterale |
 | `scripting` | reinserire il content script di Vintastic (gli stessi file del manifest) nella pagina della chat, se Vinted la carica senza; **leggere** (mai cliccare) se «Chiedi info» ha già il suo gestore di clic, nel contesto della pagina (mondo `MAIN`), prima di premerlo con `VTGuard.safeClick`. Solo sulle pagine `www.vinted.*` già autorizzate. Nessun avviso all'installazione |
 | host `www.vinted.*` | content script e API |

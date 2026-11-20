@@ -1,14 +1,15 @@
 /**
- * Version checker e link del progetto.
+ * «Cerca aggiornamento» e link del progetto (standard comuni, sezioni 1 e 3; flusso di Vintory).
  *
- * Distinzione netta:
- *  - Verifica: legge l'ultima GitHub Release (API pubblica, senza credenziali).
- *  - Download: scarica lo zip, ne calcola lo SHA-256 e lo confronta con il file
- *    .sha256 della release; solo se coincide lo salva in Download.
- *  - Installazione: la fai tu estraendo lo zip sopra la cartella dell'estensione;
- *    poi «Installa» ricarica Vintastic (chrome.runtime.reload).
- *  - Aggiornamento automatico: NON possibile per un'estensione caricata da
- *    cartella (il browser non lo consente). Dal Chrome Web Store sarebbe automatico.
+ *  - Verifica: legge version.json dal ramo main su raw.githubusercontent.com (pubblico, senza
+ *    credenziali). Non usa l'API di GitHub (60 richieste l'ora) né releases/latest (vuoto finché
+ *    la release non è pubblicata).
+ *  - Download: scarica lo zip dalla radice del repository, ne calcola lo SHA-256 e lo confronta con
+ *    version.json; se è diverso non salva niente. Poi lo salva dall'indirizzo vero di GitHub con
+ *    il nome «Vintastic-x.y.z.zip» (da un indirizzo data: Chrome può ignorare il nome).
+ *  - Installazione: estrai lo zip sopra la cartella dell'estensione, poi «Installa» ricarica
+ *    Vintastic (chrome.runtime.reload). Un'estensione caricata da cartella non può aggiornarsi da sola.
+ *  - diskVersion: dice se la cartella è già stata sovrascritta ma l'estensione non è stata ricaricata.
  */
 
 import { getSettings, getState, setState, saveSettings } from "./store.js";
@@ -17,38 +18,38 @@ import { notify } from "./notify.js";
 import { broadcast } from "./bus.js";
 import * as health from "./health.js";
 import { VERSION, REPO, DEFAULT_LINKS } from "../shared/constants.js";
-import { compareVersions, parseRelease, parseShaFile, githubError } from "../shared/version.js";
+import { compareVersions, parseVersionFile, githubError } from "../shared/version.js";
 import { sha256Hex } from "../shared/util.js";
+import { normalizeLinks } from "../shared/links.js";
 
 const MIN_INTERVAL = 60_000;
+const REPO_RE = /^[\w.-]{1,60}\/[\w.-]{1,80}$/;
+
+async function repoOf() {
+  const repo = (await getSettings()).updates?.repo || REPO;
+  return REPO_RE.test(repo) ? repo : REPO;
+}
 
 export async function check({ manual = false } = {}) {
   const s = await getSettings();
   const avail = await health.moduleAvailable("updates");
   if (!avail.ok && !manual) return { ok: false, error: avail.reason };
   const prev = await getState("updateStatus", null);
-  if (prev?.checkedAt && Date.now() - prev.checkedAt < MIN_INTERVAL && !manual) return prev;
-  if (prev?.rateLimitedUntil && Date.now() < prev.rateLimitedUntil) return { ...prev, error: "GitHub ha chiesto di aspettare: riprova più tardi." };
-  const repo = s.updates?.repo || REPO;
+  // Al massimo un controllo al minuto, anche a mano.
+  if (prev?.checkedAt && Date.now() - prev.checkedAt < MIN_INTERVAL) return prev;
+  const repo = await repoOf();
   let status;
   try {
-    const res = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers: { Accept: "application/vnd.github+json" }, credentials: "omit", cache: "no-store" });
-    if (!res.ok) {
-      const reset = Number(res.headers.get("x-ratelimit-reset")) * 1000;
-      status = { ok: false, checkedAt: Date.now(), installed: VERSION, error: githubError(res.status), httpStatus: res.status, rateLimitedUntil: res.status === 403 || res.status === 429 ? (reset || Date.now() + 3600e3) : null };
-    } else {
-      const rel = parseRelease(await res.json());
-      if (!rel.ok) status = { ok: false, checkedAt: Date.now(), installed: VERSION, error: rel.error };
-      else {
-        const cmp = compareVersions(rel.version, VERSION);
-        status = { ok: true, checkedAt: Date.now(), installed: VERSION, latest: rel.version, available: cmp === 1, release: rel };
-      }
-    }
+    const res = await fetch(`https://raw.githubusercontent.com/${repo}/main/version.json`, { credentials: "omit", cache: "no-store" });
+    if (!res.ok) status = { ok: false, error: githubError(res.status), httpStatus: res.status };
+    else status = parseVersionFile(await res.json(), VERSION);
   } catch (e) {
-    status = { ok: false, checkedAt: Date.now(), installed: VERSION, error: githubError(0), detail: e.message };
+    status = { ok: false, error: githubError(0), detail: e.message };
   }
+  status = { ...status, checkedAt: Date.now(), installed: VERSION, repo, manual };
   await setState("updateStatus", status);
   broadcast("vt:update", { status });
+  if (manual) await refreshLinks({ force: true }).catch(() => {});
   if (status.ok) await health.recordSuccess("updates");
   else if (status.httpStatus !== 404) await log({ level: "warn", category: "update", message: status.error });
   if (status.available && s.updates?.lastNotified !== status.latest) {
@@ -58,47 +59,59 @@ export async function check({ manual = false } = {}) {
   return status;
 }
 
-/** Scarica lo zip della release, verifica lo SHA-256 e lo salva. */
+/** Scarica lo zip della nuova versione: prima la verifica in memoria, poi il salvataggio. */
 export async function downloadVerified() {
   const st = await getState("updateStatus", null);
-  const rel = st?.release;
-  if (!rel?.zip) throw new Error("Nessuno zip allegato alla release: usa il link della release.");
-  const zipRes = await fetch(rel.zip.url, { credentials: "omit" });
-  if (!zipRes.ok) throw new Error(`Download non riuscito (HTTP ${zipRes.status})`);
-  const bytes = new Uint8Array(await zipRes.arrayBuffer());
-  const hash = await sha256Hex(bytes);
-  let verified = null;
-  if (rel.sha) {
-    const shaRes = await fetch(rel.sha.url, { credentials: "omit" });
-    const expected = shaRes.ok ? parseShaFile(await shaRes.text(), rel.zip.name) : null;
-    if (expected && expected !== hash) throw new Error(`Checksum NON corrispondente: lo zip non viene salvato. Atteso ${expected.slice(0, 12)}…, ottenuto ${hash.slice(0, 12)}…`);
-    verified = Boolean(expected);
+  if (!st?.available || !st.zip) throw new Error("version.json non indica lo zip: scaricalo dalla pagina GitHub di Vintastic.");
+  const url = `https://github.com/${st.repo || (await repoOf())}/raw/HEAD/${encodeURIComponent(st.zip)}`;
+  const res = await fetch(url, { credentials: "omit", cache: "no-store" });
+  if (!res.ok) throw new Error(`Download non riuscito (HTTP ${res.status}).`);
+  const hash = await sha256Hex(new Uint8Array(await res.arrayBuffer()));
+  if (st.sha256 && st.sha256 !== hash) {
+    await log({ level: "warn", category: "update", message: `SHA-256 diverso da version.json per ${st.zip}: zip non salvato` });
+    throw new Error(`Lo zip scaricato non corrisponde all'impronta di version.json: non viene salvato. Atteso ${st.sha256.slice(0, 12)}…, ottenuto ${hash.slice(0, 12)}…`);
   }
-  // data: URL → chrome.downloads (nel service worker non c'è URL.createObjectURL)
-  let bin = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  const downloadId = await chrome.downloads.download({ url: `data:application/zip;base64,${btoa(bin)}`, filename: `Vintastic/${rel.zip.name}`, conflictAction: "uniquify", saveAs: false });
-  await log({ level: "info", category: "update", message: `Scaricato ${rel.zip.name} · SHA-256 ${hash}${verified ? " (verificato)" : " (nessun checksum da confrontare)"}` });
-  return { downloadId, hash, verified, name: rel.zip.name };
+  const verified = Boolean(st.sha256);
+  const downloadId = await chrome.downloads.download({ url, filename: `Vintastic/${st.zip}`, conflictAction: "uniquify", saveAs: false });
+  await log({ level: "info", category: "update", message: `Scaricato ${st.zip} · SHA-256 ${hash}${verified ? " (verificato)" : " (version.json senza impronta)"}` });
+  return { downloadId, hash, verified, name: st.zip };
+}
+
+/**
+ * La cartella dell'estensione è già stata sovrascritta con un'altra versione?
+ * Il manifest.json sul disco è quello estratto; chrome.runtime.getManifest() quello in uso fino a «Installa».
+ */
+export async function diskVersion() {
+  const loaded = chrome.runtime.getManifest().version;
+  try {
+    const res = await fetch(`${chrome.runtime.getURL("manifest.json")}?t=${Date.now()}`, { cache: "no-store" });
+    const disk = String((await res.json()).version || "");
+    const cmp = compareVersions(disk, loaded);
+    return { loaded, disk, pending: cmp !== null && cmp !== 0, newer: cmp === 1 };
+  } catch {
+    return { loaded, disk: null, pending: false, newer: false };
+  }
 }
 
 /** Link del progetto (Discord, Ko-fi…) da links.json su GitHub: l'invito Discord si cambia senza nuova versione. */
 export async function refreshLinks({ force = false } = {}) {
   const s = await getSettings();
   const cached = await getState("links", null);
-  if (!force && (!s.links?.autoRefresh || (cached?.at && Date.now() - cached.at < 12 * 3600e3))) return cached?.links || DEFAULT_LINKS;
+  // Copia salvata da una versione precedente: può avere ancora «bugReport».
+  if (!force && (!s.links?.autoRefresh || (cached?.at && Date.now() - cached.at < 12 * 3600e3))) return cached?.links ? { ...DEFAULT_LINKS, ...normalizeLinks(cached.links) } : DEFAULT_LINKS;
   try {
-    const res = await fetch(`https://raw.githubusercontent.com/${s.updates?.repo || REPO}/main/links.json`, { credentials: "omit", cache: "no-store" });
+    const res = await fetch(`https://raw.githubusercontent.com/${await repoOf()}/main/links.json`, { credentials: "omit", cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
     const links = { ...DEFAULT_LINKS };
-    for (const [k, v] of Object.entries(json?.links || {})) {
+    for (const [k, v] of Object.entries(normalizeLinks(json?.links))) {
       if (v && typeof v.url === "string" && /^https:\/\/[\w.-]+\//.test(v.url) && v.enabled !== false) links[k] = { url: v.url, label: String(v.label || k).slice(0, 40) };
     }
     await setState("links", { at: Date.now(), links });
     return links;
   } catch {
-    await setState("links", { at: Date.now(), links: cached?.links || DEFAULT_LINKS, error: true });
-    return cached?.links || DEFAULT_LINKS;
+    const links = { ...DEFAULT_LINKS, ...normalizeLinks(cached?.links) };
+    await setState("links", { at: Date.now(), links, error: true });
+    return links;
   }
 }

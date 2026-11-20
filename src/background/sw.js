@@ -509,7 +509,7 @@ async function rpc(method, p, sender) {
 
     // aggiornamenti e link
     case "updates.check": return updates.check({ manual: true });
-    case "updates.status": return store.getState("updateStatus", null);
+    case "updates.status": return { ...((await store.getState("updateStatus", null)) || {}), disk: await updates.diskVersion() };
     case "updates.download": return updates.downloadVerified();
     case "updates.install": setTimeout(() => chrome.runtime.reload(), 300); return { reloading: true };
     case "links.get": return updates.refreshLinks({ force: Boolean(p.force) });

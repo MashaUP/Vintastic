@@ -55,7 +55,7 @@ test("analisi statica: nessun percorso d'acquisto nel codice dell'estensione", (
     // fetch/request verso checkout, pagamenti, ordini, acquisti
     for (const m of s.matchAll(/(?:fetch|request)\s*\(\s*["'`][^"'`]*(checkout|purchase|payment|\/orders?\b|\/buy\b|instant_buy|wallet)[^"'`]*["'`]/gi)) bad.push(`${path.relative(ROOT, f)}: ${m[0]}`);
     // clic diretti su elementi della pagina Vinted dal content script (solo safeClick è ammesso)
-    if (f.includes(`${path.sep}content${path.sep}`)) for (const m of s.matchAll(/\.click\(\)/g)) bad.push(`${path.relative(ROOT, f)}: .click() diretto`);
+    if (f.includes(`${path.sep}content${path.sep}`)) for (const _m of s.matchAll(/\.click\(\)/g)) bad.push(`${path.relative(ROOT, f)}: .click() diretto`);
   }
   assert.deepEqual(bad, []);
 });

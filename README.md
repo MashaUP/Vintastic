@@ -45,7 +45,7 @@
 | **Affidabilità** | IndexedDB con journal write-ahead: dopo un crash niente viene ripetuto alla cieca (ciò che era in invio diventa «da verificare»). Recovery Center. Migrazioni versionate con rollback. |
 | **Diagnostica** | Log filtrabili con possibile soluzione, Health Center con «Esegui controllo completo», Support Bundle senza dati sensibili. |
 | **Notifiche** | Centro notifiche con priorità e raggruppamento, notifiche di sistema, badge; pulitore delle notifiche Vinted (solo «segna come letta»). |
-| **Aggiornamenti** | «Cerca aggiornamento» su GitHub Releases, download con verifica SHA-256, installazione guidata. Release automatiche con GitHub Actions. |
+| **Aggiornamenti** | «Cerca aggiornamento» da `version.json` nel repository, download con verifica SHA-256, installazione guidata. Release automatiche con GitHub Actions. |
 
 <p align="center"><img src="docs/screenshots/campagna.png" width="49%" alt="Dettaglio campagna"> <img src="docs/screenshots/popup.png" width="24%" alt="Popup"> <img src="docs/screenshots/widget.png" width="24%" alt="Mini-widget"></p>
 
@@ -53,11 +53,11 @@
 
 | | |
 |---|---|
-| Versione | **2.2.0** |
+| Versione | **2.2.1** |
 | Browser | Chrome, Edge, Brave (Chromium ≥ 116). Provato in automatico su **Chrome 153**; Edge e Brave non sono stati provati in questo ciclo |
 | Verificato su Vinted reale | **In parte**: scansione e like provati dall'autore su vinted.it. Per «Chiedi info» sono verificati il pulsante, il clic e l'apertura della chat con il campo del messaggio (07–08/11/2026), e misurato il ritardo con cui il pulsante diventa cliccabile (causa del problema della 2.0.0); **l'invio di un messaggio con Vintastic su Vinted reale non è ancora stato provato**. Lettura degli account seguiti provata su vinted.it (sola lettura). Offerte e notifiche sono ricostruite (vedi [TEST_PLAN](docs/TEST_PLAN.md)) |
 | Dipendenze a runtime | Nessuna. Nessun passaggio di build per usarla |
-| Test | `npm test`: 92 test unitari (logica, migrazioni IndexedDB, divieto d'acquisto, messaggi, cicli, menu Venditore, storico) · `npm run test:e2e`: 35 scenari in Chrome con l'estensione caricata e un Vinted finto |
+| Test | `npm test`: controlli, ESLint e 93 test unitari (logica, migrazioni IndexedDB, divieto d'acquisto, messaggi, cicli, menu Venditore, storico, aggiornamenti) · `npm run test:e2e`: 35 scenari in Chrome con l'estensione caricata e un Vinted finto |
 
 ## Installazione
 
@@ -97,8 +97,9 @@ Tutto in **Impostazioni** (si salva subito, solo nel tuo browser):
 ## Aggiornamenti
 
 1. Popup o dashboard › **Cerca aggiornamento** (anche in automatico ogni 12 ore, disattivabile).
-2. **Salute › Scarica e verifica**: lo zip viene scaricato e confrontato con il suo SHA-256; se non coincide non viene salvato.
-3. Estrai lo zip **sopra** la cartella attuale (sostituisci i file), poi **Installa**: Vintastic si ricarica e recupera le campagne.
+   Vintastic legge `version.json` dal repository GitHub: la nuova versione si vede appena è caricata, anche prima della release.
+2. **Salute › Scarica e verifica**: `Vintastic-x.y.z.zip` viene scaricato in Download/Vintastic e confrontato con lo SHA-256 di `version.json`; se non coincide non viene salvato.
+3. Estrai lo zip **sopra** la cartella attuale (sostituisci i file), poi **Installa**: Vintastic si ricarica e recupera le campagne. Se hai già estratto i file ma non hai ricaricato, Salute te lo dice.
 
 Un'estensione caricata da cartella non può sostituire da sola i propri file: l'estrazione la fai tu. Dal Chrome Web Store l'aggiornamento sarebbe automatico (Vintastic non è sul Web Store).
 

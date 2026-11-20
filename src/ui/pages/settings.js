@@ -1,6 +1,6 @@
 /** Impostazioni: generali, messaggi, timer, limiti, notifiche, overlay, AI, Discord, backup, dati, avanzate. */
 
-import { h, icon, rpc, toast, modal, downloadJson, confirmBox, term } from "../lib.js";
+import { h, icon, rpc, toast, modal, downloadJson, term } from "../lib.js";
 import { MODULES } from "../../shared/constants.js";
 import { EXPORT_PARTS } from "../../shared/schema.js";
 import { startOnboarding } from "./onboarding.js";

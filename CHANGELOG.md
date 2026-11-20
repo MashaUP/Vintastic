@@ -2,6 +2,21 @@
 
 Tutte le modifiche rilevanti di Vintastic. Formato [Keep a Changelog](https://keepachangelog.com/it/1.1.0/), versioni [Semantic Versioning](https://semver.org/lang/it/).
 
+## [2.2.1] - 2026-11-20
+
+Versione PATCH: allineamento agli standard comuni dei progetti (sezione 9) e correzioni del meccanismo di aggiornamento, senza funzioni nuove per le campagne e senza dati da convertire. Guardia anti-acquisto e destinatari autorizzati invariati.
+
+### Corretto
+- **«Cerca aggiornamento» non vedeva una versione nuova finché la release non era pubblicata.** Causa: leggeva `releases/latest` dall'API di GitHub (vuota prima della pubblicazione e limitata a 60 richieste l'ora). Ora legge `version.json` da `raw.githubusercontent.com` (ramo `main`, senza credenziali, al massimo una volta al minuto) e spiega 404, limite di GitHub e rete assente.
+- **Il download confrontava lo zip con il file `.sha256` della release**, che esiste solo dopo la pubblicazione. Ora scarica `Vintastic-x.y.z.zip` dalla radice del repository, confronta lo SHA-256 con quello di `version.json` (se diverso non salva niente) e lo salva dall'indirizzo vero di GitHub con il nome giusto in Download/Vintastic (da un indirizzo `data:` Chrome può ignorare il nome).
+- Salute › Aggiornamenti: se la cartella è già stata sovrascritta con un'altra versione ma Vintastic non è stato ricaricato, lo dice e propone «Installa». Le novità si mostrano come elenco da `version.json`.
+
+### Cambiato
+- `links.json`: la chiave `bugReport` diventa `bugs` (revisione 2). La vecchia chiave è ancora accettata, anche nella copia salvata dalle versioni precedenti. `links.json` si rilegge anche a ogni «Cerca aggiornamento».
+- `npm test` esegue anche **ESLint** (`no-undef`, `no-unused-vars`; nessun avviso ammesso). Ha trovato solo due import inutilizzati e un uso di `VTGuard` senza `globalThis` (funzionava, ora è esplicito).
+- **`npm run package`**: aggiorna la versione nel README, sostituisce lo zip nella radice, scrive nome e SHA-256 dello zip in `version.json` e crea `dist/Vintastic_GitHub.zip`. `npm run check` blocca se `version.json`, `links.json` o lo zip nella radice non rispettano il formato comune.
+- La release allega lo zip della radice (lo stesso di `version.json`) invece di ricrearlo.
+
 ## [2.2.0] - 2026-11-08
 
 Versione MINOR: funzioni nuove retrocompatibili, nessuna migrazione dei dati.

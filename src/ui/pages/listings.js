@@ -1,6 +1,6 @@
 /** Annunci: tabella con filtri combinati (recenza, Top N, prezzo, stato), selezione e invio a una campagna. */
 
-import { h, icon, rpc, toast, modal, fmtEuro, fmtDay, statusPill, downloadText } from "../lib.js";
+import { h, icon, rpc, toast, modal, fmtEuro, fmtDay, downloadText } from "../lib.js";
 import { DATE_FIELDS, RANGES, TOP_N } from "../../shared/filters.js";
 import { OP_LABEL } from "../../shared/constants.js";
 import { clearHistoryDialog } from "../history-dialog.js";

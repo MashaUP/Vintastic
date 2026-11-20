@@ -2,6 +2,7 @@
 Scenari end-to-end: Chrome vero con Vintastic caricata, Vinted FINTO (fake_vinted.py).
 Ogni scenario parte da un profilo pulito. Nessuna richiesta raggiunge Vinted reale.
 """
+import os
 import asyncio, json, time
 from fake_vinted import ORIGIN, SELLER_ID, FakeVinted
 
@@ -11,6 +12,9 @@ WARDROBE = f"{ORIGIN}/member/{SELLER_ID}-venditrice_test"
 def check(cond, msg):
     if not cond:
         raise AssertionError(msg)
+
+
+EXT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
 async def scan(env, max_items=500):
@@ -545,43 +549,83 @@ async def t_import_into_fresh(env, exp):
 
 
 async def t_updates(env):
-    """Version checker su GitHub Releases finto: disponibilità, checksum, rate limit."""
+    """«Cerca aggiornamento» dalla pagina Salute (standard comuni, sezione 3): version.json da
+    raw.githubusercontent.com, zip da github.com/<repo>/raw/HEAD con SHA-256 verificato e nome
+    Vintastic-x.y.z.zip, impronta sbagliata rifiutata, 404 e 429 spiegati, cartella già sovrascritta."""
     import hashlib
     zip_bytes = b"PK\x03\x04finto-zip-vintastic"
     good = hashlib.sha256(zip_bytes).hexdigest()
-    state = {"sha": good, "status": 200}
+    state = {"sha": good, "status": 200, "hits": []}
     async def gh(route):
         u = route.request.url
-        if "releases/latest" in u:
+        state["hits"].append(u)
+        if u.startswith("https://raw.githubusercontent.com/MashaUP/Vintastic/main/version.json"):
             if state["status"] != 200:
-                return await route.fulfill(status=state["status"], headers={"x-ratelimit-reset": str(int(time.time()) + 600)}, body="{}")
+                return await route.fulfill(status=state["status"], body="")
             return await route.fulfill(status=200, content_type="application/json", body=json.dumps({
-                "tag_name": "v9.9.0", "name": "Vintastic 9.9.0", "body": "- novità di prova", "html_url": "https://github.com/MashaUP/Vintastic/releases/tag/v9.9.0",
-                "assets": [{"name": "Vintastic-9.9.0.zip", "browser_download_url": "https://github.com/MashaUP/Vintastic/releases/download/v9.9.0/Vintastic-9.9.0.zip", "size": len(zip_bytes)},
-                           {"name": "Vintastic-9.9.0.zip.sha256", "browser_download_url": "https://github.com/MashaUP/Vintastic/releases/download/v9.9.0/Vintastic-9.9.0.zip.sha256"}]}))
-        if u.endswith(".zip"):
+                "version": "9.9.0", "date": "2026-11-20", "zip": "Vintastic-9.9.0.zip", "sha256": state["sha"],
+                "notes": ["Novità di prova", "Seconda novità"]}))
+        if u.startswith("https://raw.githubusercontent.com/MashaUP/Vintastic/main/links.json"):
+            return await route.fulfill(status=200, content_type="application/json", body=json.dumps({"schemaVersion": 1, "project": "vintastic", "revision": 9, "links": {
+                "discord": {"url": "https://discord.gg/nuovo-invito", "enabled": True, "label": "Discord"},
+                "bugReport": {"url": "https://github.com/MashaUP/Vintastic/issues/new?template=vecchio.yml", "enabled": True, "label": "Segnala"}}}))
+        if u == "https://github.com/MashaUP/Vintastic/raw/HEAD/Vintastic-9.9.0.zip":
             return await route.fulfill(status=200, content_type="application/zip", body=zip_bytes)
-        if u.endswith(".sha256"):
-            return await route.fulfill(status=200, body=f"{state['sha']}  Vintastic-9.9.0.zip\n")
         return await route.fulfill(status=404, body="")
     env.github = gh
     await env.open_ui()
-    st = await env.rpc("updates.check")
-    check(st["ok"] and st["available"] and st["latest"] == "9.9.0", f"aggiornamento: {st}")
+    await env.fast_settings()                         # niente benvenuto sopra la pagina
+    ui = await env.open_ui("health")
+    # Dall'interfaccia vera: pulsante «Cerca aggiornamento» nella pagina Salute.
+    await ui.click("main >> button:has-text('Cerca aggiornamento')")
+    await ui.wait_for_selector("text=Novità della v9.9.0", timeout=15000)
+    body = await ui.inner_text("main")
+    check("v9.9.0 · nuova!" in body and "Novità di prova" in body and "Seconda novità" in body, "versione nuova e note mostrate")
+    check(not any("api.github.com" in h or "releases/latest" in h for h in state["hits"]), f"nessuna API di GitHub: {state['hits']}")
     notes = await env.rpc("notifications.list", {})
     check(any("9.9.0" in n["title"] for n in notes), "notifica nuova versione")
-    d = await env.rpc("updates.download")
-    check(d["verified"] and d["hash"] == good, f"download verificato: {d}")
+    links = await env.rpc("links.get", {})
+    check(links["discord"]["url"] == "https://discord.gg/nuovo-invito", "links.json riletto a ogni «Cerca aggiornamento»")
+    check(links["bugs"]["url"].endswith("template=vecchio.yml") and "bugReport" not in links, f"vecchia chiave bugReport accettata come bugs: {list(links)}")
+    # Scarica e verifica (dall'interfaccia): SHA-256 come in version.json, salvato dall'indirizzo vero.
+    await ui.click("main >> button:has-text('Scarica e verifica')")
+    await ui.wait_for_selector("text=Zip scaricato", timeout=15000)
+    sw = await env.sw()
+    dl = await sw.evaluate("async () => (await chrome.downloads.search({ orderBy: ['-startTime'], limit: 1 }))[0] || null")
+    check(dl and dl["url"] == "https://github.com/MashaUP/Vintastic/raw/HEAD/Vintastic-9.9.0.zip", f"salvato dall'indirizzo di GitHub, non da data: {dl and dl['url'][:80]}")
+    logs = await env.rpc("logs.query", {"limit": 20})
+    check(any(f"SHA-256 {good} (verificato)" in (l.get("message") or "") for l in logs), "impronta verificata e registrata")
+    # Impronta diversa: niente salvato.
     state["sha"] = "0" * 64
+    await env.rpc("updates.check")                     # entro un minuto: resta l'esito precedente
+    await sw.evaluate("async () => { const k = 'updateStatus'; const o = (await chrome.storage.local.get(k))[k]; if (o) { o.checkedAt = 0; await chrome.storage.local.set({ [k]: o }); } }")
+    st = await env.rpc("updates.check")
+    check(st.get("sha256") == "0" * 64, f"nuova impronta letta dopo un minuto: {st.get('sha256')}")
+    before = await sw.evaluate("async () => (await chrome.downloads.search({})).length")
     try:
         await env.rpc("updates.download")
-        raise AssertionError("checksum sbagliato accettato")
+        raise AssertionError("impronta sbagliata accettata")
     except RuntimeError as e:
-        check("NON corrispondente" in str(e), str(e))
-    state["status"] = 403
-    st = await env.rpc_raw("updates.check")
-    check(st["ok"] is False and "rate limit" in st["error"] and st["rateLimitedUntil"], f"rate limit: {st}")
-    return "nuova versione rilevata e notificata; SHA-256 verificato; checksum errato rifiutato; rate limit gestito"
+        check("non corrisponde all'impronta" in str(e), str(e))
+    after = await sw.evaluate("async () => (await chrome.downloads.search({})).length")
+    check(after == before, "con l'impronta sbagliata non si salva niente")
+    # 404 e 429 spiegati.
+    for code, text in ((404, "version.json non trovato"), (429, "limitato le richieste")):
+        state["status"] = code
+        await sw.evaluate("async () => { const k = 'updateStatus'; const o = (await chrome.storage.local.get(k))[k]; if (o) { o.checkedAt = 0; await chrome.storage.local.set({ [k]: o }); } }")
+        st = await env.rpc_raw("updates.check")
+        check(st["ok"] is False and text in st["error"], f"HTTP {code}: {st}")
+    # Cartella sovrascritta con un'altra versione ma estensione non ricaricata.
+    mpath = os.path.join(EXT_DIR, "manifest.json")
+    original = open(mpath, encoding="utf-8").read()
+    try:
+        m = json.loads(original); m["version"] = "9.9.0"
+        open(mpath, "w", encoding="utf-8").write(json.dumps(m, indent=2, ensure_ascii=False) + "\n")
+        await ui.reload()
+        await ui.wait_for_selector("text=Nella cartella c'è già la v9.9.0", timeout=15000)
+    finally:
+        open(mpath, "w", encoding="utf-8").write(original)
+    return "dalla pagina Salute: version.json da raw, note mostrate, notifica; links.json riletto (bugReport → bugs); zip da github.com/raw/HEAD con SHA-256 verificato; impronta sbagliata: nessun file; 404 e 429 spiegati; cartella già aggiornata rilevata"
 
 
 async def t_overlay(env):

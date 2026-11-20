@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { redact } from "../../src/shared/redact.js";
 import { validateImport, buildExport, dedupeMerge } from "../../src/shared/schema.js";
-import { compareVersions, parseRelease, parseShaFile } from "../../src/shared/version.js";
+import { compareVersions, parseVersionFile, githubError } from "../../src/shared/version.js";
+import { normalizeLinks } from "../../src/shared/links.js";
 import { migrateSettings } from "../../src/shared/migrations.js";
 import { normalizeListing, mergeListing } from "../../src/shared/listing.js";
 import { suggestLocal, parseSuggestions } from "../../src/shared/suggest.js";
@@ -37,18 +38,42 @@ test("deduplicazione: vince la voce più recente", () => {
   assert.equal(r.items.find((x) => x.id === 1).v, "b");
 });
 
-test("versioni e release GitHub", () => {
+test("versioni e version.json (standard comuni, sezione 2)", () => {
   assert.equal(compareVersions("1.10.0", "1.9.0"), 1);
   assert.equal(compareVersions("v2.0.0", "2.0.0"), 0);
   assert.equal(compareVersions("2.0.0-beta.2", "2.0.0"), -1);
   assert.equal(compareVersions("x", "1.0.0"), null);
-  const rel = parseRelease({ tag_name: "v1.2.0", body: "note", html_url: "https://github.com/MashaUP/Vintastic/releases/tag/v1.2.0",
-    assets: [{ name: "vintastic-1.2.0.zip", browser_download_url: "https://github.com/MashaUP/Vintastic/releases/download/v1.2.0/vintastic-1.2.0.zip" }, { name: "vintastic-1.2.0.zip.sha256", browser_download_url: "https://github.com/MashaUP/Vintastic/releases/download/v1.2.0/vintastic-1.2.0.zip.sha256" }, { name: "evil.zip", browser_download_url: "https://evil.example/x.zip" }] });
-  assert.equal(rel.version, "1.2.0");
-  assert.equal(rel.zip.name, "vintastic-1.2.0.zip");
-  assert.ok(rel.sha);
-  assert.equal(parseRelease({ tag_name: "latest" }).ok, false);
-  assert.equal(parseShaFile(`${"a".repeat(64)}  vintastic-1.2.0.zip\n`, "vintastic-1.2.0.zip"), "a".repeat(64));
+  const sha = "A".repeat(64);
+  const v = parseVersionFile({ version: "2.3.0", date: "2026-11-20", zip: "Vintastic-2.3.0.zip", sha256: sha, notes: ["uno", "x".repeat(400), ...Array(20).fill("n")] }, "2.2.1");
+  assert.equal(v.ok, true);
+  assert.equal(v.latest, "2.3.0");
+  assert.equal(v.available, true);
+  assert.equal(v.zip, "Vintastic-2.3.0.zip");
+  assert.equal(v.sha256, "a".repeat(64), "impronta in minuscolo");
+  assert.equal(v.notes.length, 12, "al massimo 12 note");
+  assert.equal(v.notes[1].length, 300, "note da massimo 300 caratteri");
+  assert.equal(v.date, "2026-11-20");
+  assert.equal(parseVersionFile({ version: "2.2.1", zip: "Vintastic-2.2.1.zip" }, "2.2.1").available, false, "stessa versione");
+  assert.equal(parseVersionFile({ version: "2.0.0" }, "2.2.1").available, false, "versione più vecchia");
+  // Dati non attendibili: nome dello zip con percorso, impronta corta, versione non semver.
+  const bad = parseVersionFile({ version: "9.9.9", zip: "../evil.zip", sha256: "abc" }, "2.2.1");
+  assert.equal(bad.zip, null);
+  assert.equal(bad.sha256, null);
+  assert.equal(parseVersionFile({ version: "latest" }, "2.2.1").ok, false);
+  assert.equal(parseVersionFile({ version: "v2.3.0" }, "2.2.1").ok, false, "version.json senza «v»");
+  assert.equal(parseVersionFile(null, "2.2.1").ok, false);
+  assert.match(githubError(404), /version\.json non trovato/);
+  assert.match(githubError(429), /limitato/);
+  assert.match(githubError(0), /connessione/);
+});
+
+test("links.json: la vecchia chiave bugReport vale come bugs", () => {
+  const old = { github: { url: "https://github.com/MashaUP/Vintastic" }, bugReport: { url: "https://github.com/MashaUP/Vintastic/issues/new" } };
+  assert.deepEqual(Object.keys(normalizeLinks(old)).sort(), ["bugs", "github"]);
+  assert.equal(normalizeLinks(old).bugs.url, "https://github.com/MashaUP/Vintastic/issues/new");
+  const both = { bugs: { url: "https://github.com/a/b/issues/new?template=nuovo.yml" }, bugReport: { url: "https://github.com/a/b/issues/new" } };
+  assert.equal(normalizeLinks(both).bugs.url, "https://github.com/a/b/issues/new?template=nuovo.yml", "se ci sono entrambe vince la nuova");
+  assert.deepEqual(normalizeLinks(null), {});
 });
 
 test("migrazione impostazioni: v1 → v4 conservando i valori dell'utente", () => {
